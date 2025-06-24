@@ -1,0 +1,16 @@
+[package]
+name = "swiftsync-p2p"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2b07f59545de16b66b3bf8ee988757c2d0c14afb" }
+tokio = { version = "1", default-features = false, optional = true, features = [
+    "sync",
+    "io-util",
+    "net",
+]}
+
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
