@@ -8,6 +8,7 @@ bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-featur
 tokio = { version = "1", default-features = false, optional = true, features = [
     "sync",
     "io-util",
+    "time",
     "net",
 ]}
 
