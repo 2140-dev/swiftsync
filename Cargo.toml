@@ -1,4 +1,4 @@
 [workspace]
-members = ["accumulator", "p2p"]
+members = ["accumulator", "p2p", "peers"]
 default-members = ["accumulator"]
 resolver = "3"
