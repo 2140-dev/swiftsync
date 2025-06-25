@@ -1,11 +1,25 @@
-use std::time::Duration;
+use std::{
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use bitcoin::p2p::ServiceFlags;
+use bitcoin::{
+    Network, consensus,
+    p2p::{
+        Address, Magic, ServiceFlags,
+        message::{CommandString, NetworkMessage, RawNetworkMessage},
+        message_network::VersionMessage,
+    },
+};
 
 pub mod tokio_ext;
 
+pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
+pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
 pub struct ProtocolVerison(pub u32);
@@ -35,66 +49,149 @@ impl ProtocolVerison {
 
 #[derive(Debug)]
 pub struct ConnectionBuilder {
+    network: Network,
+    our_ip: SocketAddr,
     offered_services: ServiceFlags,
     their_services: ServiceFlags,
     our_version: ProtocolVerison,
     their_version: ProtocolVerison,
-    they_sent_wtxid_relay: bool,
-    they_sent_cmpct_block: bool,
-    they_sent_send_headers: bool,
-    they_sent_addrv2: bool,
+    offer: Offered,
+    start_height: i32,
+    user_agent: String,
     handshake_timeout: Duration,
     connection_timeout: Duration,
 }
 
 impl ConnectionBuilder {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
+            network: Network::Bitcoin,
+            our_ip: UNREACHABLE,
             offered_services: ServiceFlags::NONE,
             their_services: ServiceFlags::NONE,
             our_version: ProtocolVerison::WTXID_RELAY,
             their_version: ProtocolVerison::WTXID_RELAY,
-            they_sent_wtxid_relay: false,
-            they_sent_cmpct_block: false,
-            they_sent_addrv2: false,
-            they_sent_send_headers: false,
+            offer: Offered::default(),
+            start_height: 0,
+            user_agent: DEFAULT_USER_AGENT.to_string(),
             handshake_timeout: HANDSHAKE_TIMEOUT,
             connection_timeout: CONNECTION_TIMEOUT,
         }
     }
 
-    fn offered_services(self, us: ServiceFlags) -> Self {
+    pub fn offered_services(self, us: ServiceFlags) -> Self {
         Self {
             offered_services: us,
             ..self
         }
     }
 
-    fn their_services_required(self, them: ServiceFlags) -> Self {
+    pub fn their_services_expected(self, them: ServiceFlags) -> Self {
         Self {
             their_services: them,
             ..self
         }
     }
 
-    fn downgrade_to_version(self, us: ProtocolVerison) -> Self {
+    pub fn downgrade_to_version(self, us: ProtocolVerison) -> Self {
         Self {
             our_version: us,
             ..self
         }
     }
 
-    fn accept_minimum_version(self, them: ProtocolVerison) -> Self {
+    pub fn accept_minimum_version(self, them: ProtocolVerison) -> Self {
         Self {
             their_version: them,
             ..self
         }
     }
+
+    pub fn add_start_height(self, start_height: i32) -> Self {
+        Self {
+            start_height,
+            ..self
+        }
+    }
+
+    pub fn set_user_agent(self, user_agent: String) -> Self {
+        Self { user_agent, ..self }
+    }
+
+    pub fn change_network(self, network: Network) -> Self {
+        Self { network, ..self }
+    }
+
+    pub fn no_cmpct_blocks(mut self) -> Self {
+        self.offer.cmpct_block = false;
+        Self { ..self }
+    }
+
+    pub fn announce_by_inv(mut self) -> Self {
+        self.offer.send_headers = false;
+        Self { ..self }
+    }
+
+    pub fn set_local_ip(self, us: SocketAddr) -> Self {
+        Self { our_ip: us, ..self }
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+impl Default for ConnectionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug)]
+enum Transport {
+    V1(Magic),
+}
+
+impl Transport {
+    fn serialize_message(&mut self, message: NetworkMessage) -> Vec<u8> {
+        match self {
+            Self::V1(magic) => {
+                let raw = RawNetworkMessage::new(*magic, message);
+                consensus::serialize(&raw)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct Negotiation {
+    wtxid_relay: bool,
+    addrv2: bool,
+    cmpct_block: bool,
+    send_headers: bool,
+}
+
+#[derive(Debug)]
+struct Offered {
+    wtxid_relay: bool,
+    addrv2: bool,
+    cmpct_block: bool,
+    send_headers: bool,
+}
+
+impl Default for Offered {
+    fn default() -> Self {
+        Self {
+            wtxid_relay: true,
+            addrv2: true,
+            cmpct_block: true,
+            send_headers: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum HandshakeError {
     TooLowVersion(ProtocolVerison),
+    IrrelevantMessage(NetworkMessage),
+    ConnectedToSelf,
+    BadDecoy,
     UnsupportedFeature,
     TimedOut,
 }
@@ -103,6 +200,11 @@ impl std::fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TimedOut => write!(f, "the handshake timed out."),
+            Self::IrrelevantMessage(m) => {
+                write!(f, "unexpected message during handshake: {}", m.cmd())
+            }
+            Self::ConnectedToSelf => write!(f, "accidental connection to self"),
+            Self::BadDecoy => write!(f, "expected a message but got a decoy"),
             Self::UnsupportedFeature => write!(
                 f,
                 "a feature we require is not supported by the connection."
@@ -115,3 +217,55 @@ impl std::fmt::Display for HandshakeError {
 }
 
 impl std::error::Error for HandshakeError {}
+
+pub(crate) struct MessageHeader {
+    magic: Magic,
+    _command: CommandString,
+    length: u32,
+    _checksum: u32,
+}
+
+impl consensus::Decodable for MessageHeader {
+    fn consensus_decode<R: bitcoin::io::BufRead + ?Sized>(
+        reader: &mut R,
+    ) -> Result<Self, bitcoin::consensus::encode::Error> {
+        let magic = Magic::consensus_decode(reader)?;
+        let _command = CommandString::consensus_decode(reader)?;
+        let length = u32::consensus_decode(reader)?;
+        let _checksum = u32::consensus_decode(reader)?;
+        Ok(Self {
+            magic,
+            _command,
+            length,
+            _checksum,
+        })
+    }
+}
+
+fn make_version(
+    version: ProtocolVerison,
+    our_services: ServiceFlags,
+    their_services: ServiceFlags,
+    our_ip: SocketAddr,
+    start_height: i32,
+    user_agent: String,
+    nonce: u64,
+) -> VersionMessage {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let them = Address::new(&UNREACHABLE, their_services);
+    let us = Address::new(&our_ip, our_services);
+    VersionMessage {
+        version: version.0,
+        services: our_services,
+        timestamp: now,
+        receiver: them,
+        sender: us,
+        nonce,
+        user_agent,
+        start_height,
+        relay: false,
+    }
+}
