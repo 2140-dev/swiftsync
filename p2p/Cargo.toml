@@ -12,6 +12,17 @@ tokio = { version = "1", default-features = false, optional = true, features = [
     "net",
 ]}
 
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+accumulator = { path = "../accumulator/" }
+peers = { path = "../peers/", default-features = true }
+
 [features]
 default = ["tokio"]
 tokio = ["dep:tokio"]
+
+[[example]]
+name = "update_accumulator"

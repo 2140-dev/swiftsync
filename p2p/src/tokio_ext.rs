@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use bitcoin::FeeRate;
 use bitcoin::p2p::ServiceFlags;
 use bitcoin::p2p::message::{NetworkMessage, RawNetworkMessage};
+use bitcoin::p2p::message_compact_blocks::SendCmpct;
 use bitcoin::secp256k1::rand;
 use bitcoin::{consensus, p2p::Magic};
 use tokio::io::AsyncWriteExt;
@@ -104,18 +105,25 @@ impl TokioConnectionExt for ConnectionBuilder {
             tcp_stream.write_all(&msg_bytes).await?;
             tcp_stream.flush().await?;
         }
-        if self.offer.cmpct_block {
-            let send_headers = NetworkMessage::WtxidRelay;
-            let msg_bytes = transport.serialize_message(send_headers);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
-        }
+
         timeout(
             self.handshake_timeout,
             negotiate_handshake(&mut tcp_stream, &mut transport, &mut negotiation),
         )
         .await
         .map_err(|_| TokioConnectionError::Protocol(HandshakeError::TimedOut))??;
+        let msg_bytes = transport.serialize_message(NetworkMessage::Verack);
+        tcp_stream.write_all(&msg_bytes).await?;
+        tcp_stream.flush().await?;
+        if self.offer.cmpct_block {
+            let send_headers = NetworkMessage::SendCmpct(SendCmpct {
+                send_compact: self.offer.cmpct_block,
+                version: 0x01,
+            });
+            let msg_bytes = transport.serialize_message(send_headers);
+            tcp_stream.write_all(&msg_bytes).await?;
+            tcp_stream.flush().await?;
+        }
         let context =
             ConnectionContext::new(transport, negotiation, self.offer, self.their_services);
         Ok((tcp_stream, context))
@@ -304,7 +312,6 @@ fn validate_received_message(
             | NetworkMessage::FilterLoad(_)
             | NetworkMessage::WtxidRelay
             | NetworkMessage::SendAddrV2
-            | NetworkMessage::SendCmpct(_)
             | NetworkMessage::SendHeaders
             | NetworkMessage::MemPool
             | NetworkMessage::Verack
@@ -317,6 +324,14 @@ fn validate_received_message(
             return Err(ReadError::NonsenseMessage(message));
         } else {
             ctx.final_alert = true;
+            return Ok(None);
+        }
+    } 
+    if matches!(message, NetworkMessage::SendCmpct(_)) {
+        if ctx.wants_cmpct {
+            return Err(ReadError::NonsenseMessage(message));
+        } else {
+            ctx.wants_cmpct = true;
             return Ok(None);
         }
     }

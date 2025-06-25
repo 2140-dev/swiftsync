@@ -19,8 +19,8 @@ mod validation;
 
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
-const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
 
@@ -58,6 +58,7 @@ pub struct ConnectionContext {
     their_services: ServiceFlags,
     fee_filter: FeeRate,
     final_alert: bool,
+    wants_cmpct: bool,
     last_message: Instant,
     total_addrs: usize,
 }
@@ -71,6 +72,7 @@ impl ConnectionContext {
             their_services,
             fee_filter: FeeRate::BROADCAST_MIN,
             final_alert: false,
+            wants_cmpct: false,
             last_message: Instant::now(),
             total_addrs: 0,
         }
