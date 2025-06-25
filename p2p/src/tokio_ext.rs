@@ -1,31 +1,42 @@
 use ::std::fmt::{Debug, Display};
 use std::net::SocketAddr;
 
+use bitcoin::FeeRate;
+use bitcoin::p2p::ServiceFlags;
 use bitcoin::p2p::message::{NetworkMessage, RawNetworkMessage};
 use bitcoin::secp256k1::rand;
 use bitcoin::{consensus, p2p::Magic};
 use tokio::io::AsyncWriteExt;
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::{
     io::{self, AsyncReadExt},
     net::TcpStream,
     time::timeout,
 };
 
+use crate::validation::ValidationExt;
 use crate::{
-    ConnectionBuilder, HandshakeError, Negotiation, ProtocolVerison, Transport, make_version,
+    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ProtocolVerison, Transport,
+    make_version,
 };
 
-pub trait ConnectionTokioExt {
+pub trait TokioConnectionExt {
     type Error: Debug + Display + Send + Sync + std::error::Error;
 
     #[allow(async_fn_in_trait)]
-    async fn open_connection(self, to: impl Into<SocketAddr>) -> Result<TcpStream, Self::Error>;
+    async fn open_connection(
+        self,
+        to: impl Into<SocketAddr>,
+    ) -> Result<(TcpStream, ConnectionContext), Self::Error>;
 }
 
-impl ConnectionTokioExt for ConnectionBuilder {
+impl TokioConnectionExt for ConnectionBuilder {
     type Error = TokioConnectionError;
 
-    async fn open_connection(self, to: impl Into<SocketAddr>) -> Result<TcpStream, Self::Error> {
+    async fn open_connection(
+        self,
+        to: impl Into<SocketAddr>,
+    ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         let socket_addr = to.into();
         let mut tcp_stream = timeout(self.connection_timeout, TcpStream::connect(socket_addr))
             .await
@@ -105,8 +116,9 @@ impl ConnectionTokioExt for ConnectionBuilder {
         )
         .await
         .map_err(|_| TokioConnectionError::Protocol(HandshakeError::TimedOut))??;
-
-        Ok(tcp_stream)
+        let context =
+            ConnectionContext::new(transport, negotiation, self.offer, self.their_services);
+        Ok((tcp_stream, context))
     }
 }
 
@@ -134,6 +146,211 @@ async fn negotiate_handshake(
         }
     }
 }
+
+trait TokioTransportExt {
+    #[allow(async_fn_in_trait)]
+    async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
+        &mut self,
+        reader: &mut R,
+    ) -> Result<Option<NetworkMessage>, ReadMessageError>;
+}
+
+impl TokioTransportExt for Transport {
+    async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
+        &mut self,
+        reader: &mut R,
+    ) -> Result<Option<NetworkMessage>, ReadMessageError> {
+        match self {
+            Self::V1(magic) => {
+                let mut message_buf = vec![0_u8; 24];
+                let _ = reader.read_exact(&mut message_buf).await?;
+                let header: crate::MessageHeader = consensus::deserialize_partial(&message_buf)?.0;
+                if header.magic != *magic {
+                    return Err(ReadMessageError::UnexpectedMagic {
+                        want: *magic,
+                        got: header.magic,
+                    });
+                }
+                if header.length > crate::MAX_MESSAGE_SIZE {
+                    return Err(ReadMessageError::AbsurdSize {
+                        message_size: header.length,
+                    });
+                }
+                let mut contents_buf = vec![0_u8; header.length as usize];
+                let _ = reader.read_exact(&mut contents_buf).await?;
+                message_buf.extend_from_slice(&contents_buf);
+                let message: RawNetworkMessage = consensus::deserialize(&message_buf)?;
+                Ok(Some(message.into_payload()))
+            }
+        }
+    }
+}
+
+pub trait TokioWriteNetworkMessageExt {
+    #[allow(async_fn_in_trait)]
+    async fn write_message(
+        &mut self,
+        message: NetworkMessage,
+        ctx: &mut ConnectionContext,
+    ) -> Result<(), WriteError>;
+}
+
+impl TokioWriteNetworkMessageExt for TcpStream {
+    fn write_message(
+        &mut self,
+        message: NetworkMessage,
+        ctx: &mut ConnectionContext,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        write_for_any(self, message, ctx)
+    }
+}
+
+impl TokioWriteNetworkMessageExt for OwnedWriteHalf {
+    fn write_message(
+        &mut self,
+        message: NetworkMessage,
+        ctx: &mut ConnectionContext,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        write_for_any(self, message, ctx)
+    }
+}
+
+async fn write_for_any<W: AsyncWriteExt + Send + Sync + Unpin>(
+    writer: &mut W,
+    message: NetworkMessage,
+    ctx: &mut ConnectionContext,
+) -> Result<(), WriteError> {
+    if matches!(
+        message,
+        NetworkMessage::FilterClear
+            | NetworkMessage::FilterAdd(_)
+            | NetworkMessage::FilterLoad(_)
+            | NetworkMessage::Alert(_)
+            | NetworkMessage::WtxidRelay
+            | NetworkMessage::SendAddrV2
+            | NetworkMessage::SendCmpct(_)
+            | NetworkMessage::SendHeaders
+            | NetworkMessage::MemPool
+            | NetworkMessage::Verack
+            | NetworkMessage::Version(_)
+    ) {
+        return Err(WriteError::NotRecommended(message));
+    }
+    if matches!(message, NetworkMessage::Addr(_)) && ctx.offered.addrv2 {
+        return Err(WriteError::NotRecommended(message));
+    }
+    if matches!(message, NetworkMessage::CmpctBlock(_)) && !ctx.offered.cmpct_block {
+        return Err(WriteError::NotRecommended(message));
+    }
+    if matches!(
+        message,
+        NetworkMessage::GetCFilters(_)
+            | NetworkMessage::GetCFCheckpt(_)
+            | NetworkMessage::GetCFHeaders(_)
+    ) && !ctx.their_services.has(ServiceFlags::COMPACT_FILTERS)
+    {
+        return Err(WriteError::NotRecommended(message));
+    }
+    let msg_bytes = ctx.transport.serialize_message(message);
+    writer.write_all(&msg_bytes).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
+pub trait TokioReadNetworkMessageExt {
+    #[allow(async_fn_in_trait)]
+    async fn read_message(
+        &mut self,
+        ctx: &mut ConnectionContext,
+    ) -> Result<Option<NetworkMessage>, ReadError>;
+}
+
+impl TokioReadNetworkMessageExt for TcpStream {
+    async fn read_message(
+        &mut self,
+        ctx: &mut ConnectionContext,
+    ) -> Result<Option<NetworkMessage>, ReadError> {
+        let message = ctx.transport.read_message(self).await?;
+        let message = match message {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        validate_received_message(message, ctx)
+    }
+}
+
+impl TokioReadNetworkMessageExt for OwnedReadHalf {
+    async fn read_message(
+        &mut self,
+        ctx: &mut ConnectionContext,
+    ) -> Result<Option<NetworkMessage>, ReadError> {
+        let message = ctx.transport.read_message(self).await?;
+        let message = match message {
+            Some(message) => message,
+            None => return Ok(None),
+        };
+        validate_received_message(message, ctx)
+    }
+}
+
+fn validate_received_message(
+    message: NetworkMessage,
+    ctx: &mut ConnectionContext,
+) -> Result<Option<NetworkMessage>, ReadError> {
+    if matches!(
+        message,
+        NetworkMessage::FilterClear
+            | NetworkMessage::FilterAdd(_)
+            | NetworkMessage::FilterLoad(_)
+            | NetworkMessage::WtxidRelay
+            | NetworkMessage::SendAddrV2
+            | NetworkMessage::SendCmpct(_)
+            | NetworkMessage::SendHeaders
+            | NetworkMessage::MemPool
+            | NetworkMessage::Verack
+            | NetworkMessage::Version(_)
+    ) {
+        return Err(ReadError::NonsenseMessage(message));
+    }
+    if matches!(message, NetworkMessage::Alert(_)) {
+        if ctx.final_alert {
+            return Err(ReadError::NonsenseMessage(message));
+        } else {
+            ctx.final_alert = true;
+            return Ok(None);
+        }
+    }
+    match &message {
+        NetworkMessage::FeeFilter(f) => {
+            if *f < 0 {
+                return Err(ReadError::MessageMalformed);
+            } else {
+                let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
+                ctx.fee_filter = fee_rate;
+                return Ok(None);
+            }
+        }
+        NetworkMessage::Headers(h) => {
+            if !h.is_valid() {
+                return Err(ReadError::MessageMalformed);
+            }
+        }
+        NetworkMessage::GetData(r) => {
+            if !r.0.is_valid() {
+                return Err(ReadError::MessageMalformed);
+            }
+        }
+        NetworkMessage::Inv(r) => {
+            if !r.0.is_valid() {
+                return Err(ReadError::MessageMalformed);
+            }
+        }
+        _ => (),
+    }
+    Ok(Some(message))
+}
+
+// Error implementation section
 
 #[derive(Debug)]
 pub enum TokioConnectionError {
@@ -165,6 +382,52 @@ impl Display for TokioConnectionError {
 }
 
 impl std::error::Error for TokioConnectionError {}
+
+#[derive(Debug)]
+pub enum WriteError {
+    Io(io::Error),
+    NotRecommended(NetworkMessage),
+}
+
+impl From<io::Error> for WriteError {
+    fn from(value: io::Error) -> Self {
+        WriteError::Io(value)
+    }
+}
+
+impl Display for WriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(io) => write!(f, "unexpected io error: {io}"),
+            Self::NotRecommended(msg) => write!(f, "non-sensical message: {}", msg.cmd()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ReadError {
+    NonsenseMessage(NetworkMessage),
+    ReadMessageError(ReadMessageError),
+    MessageMalformed,
+}
+
+impl Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadMessageError(r) => write!(f, "{r}"),
+            Self::MessageMalformed => write!(f, "message data is malformed"),
+            Self::NonsenseMessage(n) => write!(f, "received faulty message: {}", n.cmd()),
+        }
+    }
+}
+
+impl std::error::Error for ReadError {}
+
+impl From<ReadMessageError> for ReadError {
+    fn from(value: ReadMessageError) -> Self {
+        Self::ReadMessageError(value)
+    }
+}
 
 #[derive(Debug)]
 pub enum ReadMessageError {
@@ -206,42 +469,3 @@ impl Display for ReadMessageError {
 }
 
 impl std::error::Error for ReadMessageError {}
-
-trait TokioTransportExt {
-    #[allow(async_fn_in_trait)]
-    async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
-        &mut self,
-        reader: &mut R,
-    ) -> Result<Option<NetworkMessage>, ReadMessageError>;
-}
-
-impl TokioTransportExt for Transport {
-    async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
-        &mut self,
-        reader: &mut R,
-    ) -> Result<Option<NetworkMessage>, ReadMessageError> {
-        match self {
-            Self::V1(magic) => {
-                let mut message_buf = vec![0_u8; 24];
-                let _ = reader.read_exact(&mut message_buf).await?;
-                let header: crate::MessageHeader = consensus::deserialize_partial(&message_buf)?.0;
-                if header.magic != *magic {
-                    return Err(ReadMessageError::UnexpectedMagic {
-                        want: *magic,
-                        got: header.magic,
-                    });
-                }
-                if header.length > crate::MAX_MESSAGE_SIZE {
-                    return Err(ReadMessageError::AbsurdSize {
-                        message_size: header.length,
-                    });
-                }
-                let mut contents_buf = vec![0_u8; header.length as usize];
-                let _ = reader.read_exact(&mut contents_buf).await?;
-                message_buf.extend_from_slice(&contents_buf);
-                let message: RawNetworkMessage = consensus::deserialize(&message_buf)?;
-                Ok(Some(message.into_payload()))
-            }
-        }
-    }
-}

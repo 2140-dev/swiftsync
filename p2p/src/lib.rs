@@ -1,10 +1,10 @@
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use bitcoin::{
-    Network, consensus,
+    FeeRate, Network, consensus,
     p2p::{
         Address, Magic, ServiceFlags,
         message::{CommandString, NetworkMessage, RawNetworkMessage},
@@ -12,7 +12,10 @@ use bitcoin::{
     },
 };
 
+#[cfg(feature = "tokio")]
 pub mod tokio_ext;
+
+mod validation;
 
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
@@ -45,6 +48,45 @@ impl ProtocolVerison {
     pub const MEMPOOL: ProtocolVerison = ProtocolVerison(60002);
     /// Support `ping` and `pong` messages
     pub const PING_PONG: ProtocolVerison = ProtocolVerison(60001);
+}
+
+#[derive(Debug)]
+pub struct ConnectionContext {
+    transport: Transport,
+    negotiation: Negotiation,
+    offered: Offered,
+    their_services: ServiceFlags,
+    fee_filter: FeeRate,
+    final_alert: bool,
+    last_message: Instant,
+    total_addrs: usize,
+}
+
+impl ConnectionContext {
+    fn new(transport: Transport, negotiation: Negotiation, offered: Offered, their_services: ServiceFlags) -> Self {
+        Self {
+            transport,
+            negotiation,
+            offered,
+            their_services,
+            fee_filter: FeeRate::BROADCAST_MIN,
+            final_alert: false,
+            last_message: Instant::now(),
+            total_addrs: 0,
+        }
+    }
+
+    pub fn addrs_received(&self) -> usize {
+        self.total_addrs
+    }
+
+    pub fn last_message(&self) -> Instant {
+        self.last_message
+    }
+
+    pub fn fee_filter(&self) -> FeeRate {
+        self.fee_filter
+    }
 }
 
 #[derive(Debug)]
@@ -110,6 +152,13 @@ impl ConnectionBuilder {
     pub fn add_start_height(self, start_height: i32) -> Self {
         Self {
             start_height,
+            ..self
+        }
+    }
+
+    pub fn connection_timeout(self, timeout: Duration) -> Self {
+        Self {
+            connection_timeout: timeout,
             ..self
         }
     }
