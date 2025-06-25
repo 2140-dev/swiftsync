@@ -60,6 +60,19 @@ impl DnsQuery {
         }
     }
 
+    pub fn lookup(self) -> Result<Vec<IpAddr>, DnsResponseError> {
+        let sock = std::net::UdpSocket::bind(LOCAL_HOST)?;
+        sock.connect(self.resolver)?;
+        sock.send(&self.message)?;
+        let mut response_buf = [0u8; 512];
+        let (amt, _src) = sock.recv_from(&mut response_buf)?;
+        if amt < HEADER_BYTES {
+            return Err(DnsResponseError::MalformedHeader);
+        }
+        let ips = self.parse_message(&response_buf[..amt])?;
+        Ok(ips)
+    }
+
     fn parse_message(&self, mut response: &[u8]) -> Result<Vec<IpAddr>, DnsResponseError> {
         let mut ips = Vec::with_capacity(10);
         let mut buf: [u8; 2] = [0, 0];
@@ -115,14 +128,14 @@ impl DnsQuery {
 }
 
 #[cfg(feature = "tokio")]
-pub trait TokioDnsExt {    
+pub trait TokioDnsExt {
     #[allow(async_fn_in_trait)]
-    async fn lookup(&self) -> Result<Vec<IpAddr>, TokioDnsQueryError>;
+    async fn lookup_async(self) -> Result<Vec<IpAddr>, TokioDnsQueryError>;
 }
 
 #[cfg(feature = "tokio")]
 impl TokioDnsExt for DnsQuery {
-    async fn lookup(&self) -> Result<Vec<IpAddr>, TokioDnsQueryError> {
+    async fn lookup_async(self) -> Result<Vec<IpAddr>, TokioDnsQueryError> {
         let sock = tokio::net::UdpSocket::bind(LOCAL_HOST).await?;
         sock.connect(self.resolver).await?;
         sock.send(&self.message).await?;
