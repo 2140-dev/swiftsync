@@ -93,19 +93,12 @@ impl TokioConnectionExt for ConnectionBuilder {
             tcp_stream.write_all(&msg_bytes).await?;
             tcp_stream.flush().await?;
         }
-        if self.offer.send_headers {
-            let send_headers = NetworkMessage::SendHeaders;
-            let msg_bytes = transport.serialize_message(send_headers);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
-        }
         if self.offer.wtxid_relay {
             let send_headers = NetworkMessage::WtxidRelay;
             let msg_bytes = transport.serialize_message(send_headers);
             tcp_stream.write_all(&msg_bytes).await?;
             tcp_stream.flush().await?;
         }
-
         timeout(
             self.handshake_timeout,
             negotiate_handshake(&mut tcp_stream, &mut transport, &mut negotiation),
@@ -118,8 +111,14 @@ impl TokioConnectionExt for ConnectionBuilder {
         if self.offer.cmpct_block {
             let send_headers = NetworkMessage::SendCmpct(SendCmpct {
                 send_compact: self.offer.cmpct_block,
-                version: 0x01,
+                version: 0x00,
             });
+            let msg_bytes = transport.serialize_message(send_headers);
+            tcp_stream.write_all(&msg_bytes).await?;
+            tcp_stream.flush().await?;
+        }
+        if self.offer.send_headers {
+            let send_headers = NetworkMessage::SendHeaders;
             let msg_bytes = transport.serialize_message(send_headers);
             tcp_stream.write_all(&msg_bytes).await?;
             tcp_stream.flush().await?;
@@ -138,18 +137,20 @@ async fn negotiate_handshake(
     loop {
         let message = transport.read_message(tcp_stream).await?;
         match message {
-            Some(message) => match message {
-                NetworkMessage::SendAddrV2 => negotiation.addrv2 = true,
-                NetworkMessage::WtxidRelay => negotiation.wtxid_relay = true,
-                NetworkMessage::SendCmpct(_) => negotiation.cmpct_block = true,
-                NetworkMessage::SendHeaders => negotiation.send_headers = true,
-                NetworkMessage::Verack => return Ok(()),
-                other => {
-                    return Err(TokioConnectionError::Protocol(
-                        HandshakeError::IrrelevantMessage(other),
-                    ));
+            Some(message) => {
+                match message {
+                    NetworkMessage::SendAddrV2 => negotiation.addrv2 = true,
+                    NetworkMessage::WtxidRelay => negotiation.wtxid_relay = true,
+                    NetworkMessage::SendCmpct(_) => negotiation.cmpct_block = true,
+                    NetworkMessage::SendHeaders => negotiation.send_headers = true,
+                    NetworkMessage::Verack => return Ok(()),
+                    other => {
+                        return Err(TokioConnectionError::Protocol(
+                            HandshakeError::IrrelevantMessage(other),
+                        ));
+                    }
                 }
-            },
+            }
             None => return Err(TokioConnectionError::Protocol(HandshakeError::BadDecoy)),
         }
     }
@@ -312,7 +313,6 @@ fn validate_received_message(
             | NetworkMessage::FilterLoad(_)
             | NetworkMessage::WtxidRelay
             | NetworkMessage::SendAddrV2
-            | NetworkMessage::SendHeaders
             | NetworkMessage::MemPool
             | NetworkMessage::Verack
             | NetworkMessage::Version(_)
@@ -326,12 +326,20 @@ fn validate_received_message(
             ctx.final_alert = true;
             return Ok(None);
         }
-    } 
-    if matches!(message, NetworkMessage::SendCmpct(_)) {
-        if ctx.wants_cmpct {
+    }
+    if matches!(message, NetworkMessage::SendHeaders) {
+        if ctx.negotiation.send_headers {
             return Err(ReadError::NonsenseMessage(message));
         } else {
-            ctx.wants_cmpct = true;
+            ctx.negotiation.send_headers = true;
+            return Ok(None);
+        }
+    }
+    if matches!(message, NetworkMessage::SendCmpct(_)) {
+        if ctx.negotiation.cmpct_block {
+            return Err(ReadError::NonsenseMessage(message));
+        } else {
+            ctx.negotiation.cmpct_block = true;
             return Ok(None);
         }
     }

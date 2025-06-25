@@ -58,7 +58,6 @@ pub struct ConnectionContext {
     their_services: ServiceFlags,
     fee_filter: FeeRate,
     final_alert: bool,
-    wants_cmpct: bool,
     last_message: Instant,
     total_addrs: usize,
 }
@@ -72,7 +71,6 @@ impl ConnectionContext {
             their_services,
             fee_filter: FeeRate::BROADCAST_MIN,
             final_alert: false,
-            wants_cmpct: false,
             last_message: Instant::now(),
             total_addrs: 0,
         }

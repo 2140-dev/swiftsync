@@ -7,15 +7,18 @@ use accumulator::Accumulator;
 use bitcoin::{
     BlockHash, Network, OutPoint,
     block::BlockUncheckedExt,
-    p2p::{ServiceFlags, message::NetworkMessage, message_blockdata::GetBlocksMessage},
+    p2p::{
+        ServiceFlags,
+        message::NetworkMessage,
+        message_blockdata::{GetBlocksMessage, Inventory},
+    },
 };
 use peers::{
     PortExt,
     dns::{DnsQuery, TokioDnsExt},
 };
 use swiftsync_p2p::{
-    ConnectionBuilder,
-    tokio_ext::{TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt},
+    tokio_ext::{TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt}, ConnectionBuilder, ProtocolVerison
 };
 
 const DNS_SEED: &str = "seed.bitcoin.sprovoost.nl";
@@ -65,8 +68,14 @@ async fn main() {
                     .await
                     .unwrap(),
                 NetworkMessage::Inv(data) => {
-                    let getdata = NetworkMessage::GetData(data);
-                    stream.write_message(getdata, &mut ctx).await.unwrap();
+                    if data
+                        .0
+                        .iter()
+                        .any(|inv| matches!(inv, Inventory::Block(_) | Inventory::WitnessBlock(_)))
+                    {
+                        let getdata = NetworkMessage::GetData(data);
+                        stream.write_message(getdata, &mut ctx).await.unwrap();
+                    }
                 }
                 NetworkMessage::Block(block) => {
                     let checked = block.validate().unwrap();
