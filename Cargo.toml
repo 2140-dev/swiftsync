@@ -1,4 +1,4 @@
 [workspace]
-members = ["accumulator", "p2p", "peers"]
+members = ["accumulator", "p2p", "peers", "utxo_verifier"]
 default-members = ["accumulator"]
 resolver = "3"
