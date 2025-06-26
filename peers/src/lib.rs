@@ -30,7 +30,31 @@ impl PortExt for Network {
             Self::Regtest => 18444,
             Self::Testnet(TestnetVersion::V3) => 48333,
             Self::Testnet(TestnetVersion::V4) => 48333,
-            _ => unreachable!()
+            _ => unreachable!(),
+        }
+    }
+}
+
+pub trait SeedsExt {
+    fn dns_seeds(&self) -> Vec<&str>;
+}
+
+impl SeedsExt for Network {
+    fn dns_seeds(&self) -> Vec<&str> {
+        match self {
+            Self::Bitcoin => vec![
+                "seed.bitcoin.sipa.be",
+                "dnsseed.bluematt.me",
+                "dnsseed.bitcoin.dashjr.org",
+                "seed.bitcoinstats.com",
+                "seed.bitcoin.jonasschnelli.ch",
+                "seed.btc.petertodd.org",
+                "seed.bitcoin.sprovoost.nl",
+                "dnsseed.emzy.de",
+                "seed.bitcoin.wiz.biz",
+            ],
+            Self::Signet => vec!["seed.dlsouza.lol", "seed.signet.bitcoin.sprovoost.nl"],
+            _ => unimplemented!(),
         }
     }
 }
