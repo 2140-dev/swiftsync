@@ -12,13 +12,15 @@ use bitcoin::{
         message::NetworkMessage,
         message_blockdata::{GetBlocksMessage, Inventory},
     },
+    secp256k1::rand::{seq::SliceRandom, thread_rng},
 };
 use peers::{
     PortExt,
     dns::{DnsQuery, TokioDnsExt},
 };
 use swiftsync_p2p::{
-    tokio_ext::{TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt}, ConnectionBuilder, ProtocolVerison
+    ConnectionBuilder,
+    tokio_ext::{TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt},
 };
 
 const DNS_SEED: &str = "seed.bitcoin.sprovoost.nl";
@@ -50,7 +52,7 @@ async fn main() {
         .await
         .unwrap();
     tracing::info!("Connecting to the first result");
-    let first = dns.first().unwrap();
+    let first = dns.choose(&mut thread_rng()).unwrap();
     let peer = SocketAddr::new(*first, NETWORK.port());
     let (mut stream, mut ctx) = connection_builder.open_connection(peer).await.unwrap();
     tracing::info!("Completed version handshake");
