@@ -9,6 +9,8 @@ use bitcoin::secp256k1::rand::thread_rng;
 
 use crate::encode_qname;
 
+const CLOUDFLARE: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53);
+
 const LOCAL_HOST: &str = "0.0.0.0:0";
 const HEADER_BYTES: usize = 12;
 
@@ -57,6 +59,26 @@ impl DnsQuery {
             message,
             question,
             resolver: dns_resolver,
+        }
+    }
+
+    pub fn new_cloudflare(seed: &str) -> Self {
+        let mut rng = thread_rng();
+        let mut message_id = [0, 0];
+        rng.fill_bytes(&mut message_id);
+        let mut message = message_id.to_vec();
+        message.extend(RECURSIVE_FLAGS);
+        message.push(0x00); // QDCOUNT
+        message.push(0x01); // QDCOUNT
+        message.extend(COUNTS);
+        let mut question = encode_qname(seed, None);
+        question.extend(QTYPE);
+        message.extend_from_slice(&question);
+        Self {
+            message_id,
+            message,
+            question,
+            resolver: CLOUDFLARE,
         }
     }
 

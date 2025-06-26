@@ -38,5 +38,5 @@ fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: &mut Accumulator) 
 
 fn main() {
     let mut acc = Accumulator::new();
-    update_acc_from_outpoint_set("./outpoints.db", &mut acc);
+    update_acc_from_outpoint_set("../outpoints.db", &mut acc);
 }
