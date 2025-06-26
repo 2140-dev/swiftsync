@@ -1,12 +1,13 @@
-use std::{path::Path, time::Instant};
+use std::{path::Path, sync::Arc, time::Instant};
 
 use accumulator::Accumulator;
 use bitcoin::{OutPoint, Txid};
+use tokio::sync::Mutex;
 use rusqlite::Connection;
 
 const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
 
-pub fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: &mut Accumulator) {
+pub fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: Arc<Mutex<Accumulator>>) {
     let conn = Connection::open(path).unwrap();
     let mut stmt = conn.prepare(SELECT_STMT).unwrap();
     let mut rows = stmt.query([]).unwrap();
@@ -18,6 +19,7 @@ pub fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: &mut Accumulat
         let vout: u32 = row.get(1).unwrap();
         let txid = txid.parse::<Txid>().unwrap();
         let outpoint = OutPoint { txid, vout };
+        let mut acc = acc.blocking_lock();
         acc.spend(outpoint);
         outpoints_spent += 1;
         if outpoints_spent % 1_000_000 == 0 {

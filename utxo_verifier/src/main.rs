@@ -21,7 +21,6 @@ use peers::{
 use tokio::{
     net::TcpStream,
     sync::{Mutex, oneshot},
-    task::block_in_place,
     time::timeout,
 };
 
@@ -173,7 +172,7 @@ async fn main() {
     let path = args
         .next()
         .expect("Provide a file path to the utxos.sqlite/outpoints.sqlite file");
-    let mut acc = Accumulator::new();
+    let acc = Arc::new(Mutex::new(Accumulator::new()));
     let peers = Arc::new(Mutex::new(HashSet::<IpAddr>::new()));
     tracing::info!("Starting DNS thread");
     let dns_mutex = Arc::clone(&peers);
@@ -187,8 +186,7 @@ async fn main() {
         sync_header_chain(header_peer_mutex, header_chain_mutex, tx).await
     });
     tracing::info!("Loading OutPoint set and updating the accumulator");
-    tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, &mut acc));
-    tracing::info!("Finished updating accumulator from snapshot");
+    let utxo_mutex = Arc::clone(&acc);
+    tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, utxo_mutex));
     let _ = rx.await;
-    tracing::info!("Done");
 }
