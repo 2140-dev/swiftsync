@@ -14,11 +14,11 @@ pub struct Accumulator {
 }
 
 fn hash_outpoint(outpoint: OutPoint) -> [u8; 32] {
-    let mut input = [0u8; 32];
+    let mut input = [0u8; 36];
     let txid = outpoint.txid.to_byte_array();
     let index = outpoint.vout.to_le_bytes();
-    input[..28].copy_from_slice(&txid[..28]);
-    input[28..].copy_from_slice(&index);
+    input[..32].copy_from_slice(&txid);
+    input[32..].copy_from_slice(&index);
     sha256t::hash::<SwiftSyncTag>(&input).to_byte_array()
 }
 

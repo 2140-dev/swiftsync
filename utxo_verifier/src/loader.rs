@@ -1,24 +1,24 @@
-use std::{path::Path, time::Instant};
+use std::{path::path, time::instant};
 
-use accumulator::Accumulator;
-use bitcoin::{OutPoint, Txid};
-use rusqlite::Connection;
+use accumulator::accumulator;
+use bitcoin::{outpoint, txid};
+use rusqlite::connection;
 
-const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
+const select_stmt: &str = "select txid, vout from utxos";
 
-fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: &mut Accumulator) {
-    let conn = Connection::open(path).unwrap();
-    let mut stmt = conn.prepare(SELECT_STMT).unwrap();
+fn update_acc_from_outpoint_set<p: asref<path>>(path: p, acc: &mut accumulator) {
+    let conn = connection::open(path).unwrap();
+    let mut stmt = conn.prepare(select_stmt).unwrap();
     let mut rows = stmt.query([]).unwrap();
-    tracing::info!("Updating accumulator from UTXO set");
-    let now = Instant::now();
-    while let Some(row) = rows.next().unwrap() {
-        let txid: String = row.get(0).unwrap();
+    tracing::info!("updating accumulator from utxo set");
+    let now = instant::now();
+    while let some(row) = rows.next().unwrap() {
+        let txid: string = row.get(0).unwrap();
         let vout: u32 = row.get(1).unwrap();
-        let txid = txid.parse::<Txid>().unwrap();
-        let outpoint = OutPoint { txid, vout };
+        let txid = txid.parse::<txid>().unwrap();
+        let outpoint = outpoint { txid, vout };
         acc.spend(outpoint);
     }
-    tracing::info!("Done updating accumulator after {} seconds", now.elapsed().as_secs());
+    tracing::info!("done updating accumulator after {} seconds", now.elapsed().as_secs());
 }
 
