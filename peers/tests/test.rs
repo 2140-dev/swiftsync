@@ -18,3 +18,10 @@ fn test_dns_blocking() {
     let addrs = query.lookup().unwrap();
     assert!(!addrs.is_empty());
 }
+
+#[test]
+fn test_cloudflare() {
+    let query = DnsQuery::new_cloudflare("seed.bitcoin.sprovoost.nl");
+    let addrs = query.lookup().unwrap();
+    assert!(!addrs.is_empty());
+}
