@@ -2,9 +2,16 @@ use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 
 use accumulator::Accumulator;
 use bitcoin::{
-    block::{BlockCheckedExt, BlockUncheckedExt}, p2p::{
-        message::{InventoryPayload, NetworkMessage}, message_blockdata::Inventory, ServiceFlags
-    }, script::ScriptExt, secp256k1::rand::{seq::IteratorRandom, thread_rng}, BlockHash, OutPoint
+    BlockHash, OutPoint,
+    block::BlockUncheckedExt,
+    p2p::{
+        ServiceFlags,
+        message::{InventoryPayload, NetworkMessage},
+        message_blockdata::Inventory,
+    },
+    script::ScriptExt,
+    secp256k1::rand::{seq::IteratorRandom, thread_rng},
+    transaction::TransactionExt,
 };
 use p2p::{
     ConnectionBuilder,
@@ -70,8 +77,10 @@ pub async fn fetch_blocks(
                             let checked = block.validate().unwrap();
                             let mut acc_lock = acc.lock().await;
                             for tx in checked.transactions() {
-                                for input in tx.inputs() {
-                                    acc_lock.spend(input.previous_output);
+                                if !tx.is_coinbase() {
+                                    for input in tx.inputs() {
+                                        acc_lock.spend(input.previous_output);
+                                    }
                                 }
                                 let txid = tx.compute_txid();
                                 for (index, output) in tx.outputs().iter().enumerate() {

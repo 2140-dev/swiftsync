@@ -237,41 +237,39 @@ async fn main() {
     let blocks_per_worker = (chain_lock.height() as usize + 1) / WORKERS;
     let mut workers = Vec::new();
     let mut worker_id: usize = 0;
-    let mut hashes = HashSet::new();
     let (done, mut rx) = mpsc::channel(WORKERS);
     let assume_valid_hash = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c"
         .parse::<BlockHash>()
         .unwrap();
     assert_eq!(chain_lock.tip_hash(), assume_valid_hash);
-    for indexed in chain_lock.iter_headers() {
-        let hash = indexed.header.block_hash();
-        hashes.insert(hash);
-        if hashes.len() % blocks_per_worker == 0 && !hashes.is_empty() {
-            let assigned_hashes = Arc::new(Mutex::new(hashes.clone()));
-            let hashes_for_worker = Arc::clone(&assigned_hashes);
-            let acc_state = Arc::clone(&acc);
-            let peer = peer_lock.iter().choose(&mut rng).copied().unwrap();
-            let port = NETWORK.port();
-            let done = done.clone();
-            tracing::info!("Spawning worker {worker_id}");
-            let handle = tokio::task::spawn(async move {
-                fetch_blocks(acc_state, hashes_for_worker, (peer, port), done, worker_id).await;
-            });
-            let worker = Worker {
-                worker_id,
-                hashes: assigned_hashes,
-                task: handle,
-            };
-            workers.push(worker);
-            worker_id += 1;
-            hashes.clear();
-        }
-    }
-    if !hashes.is_empty() {
-        let last_worker = workers.last_mut().unwrap();
-        let mut hash_lock = last_worker.hashes.lock().await;
-        hash_lock.extend(hashes);
-    }
+    let hashes = chain_lock
+        .iter_headers()
+        .filter(|indexed| indexed.height.ne(&0))
+        .map(|indexed| indexed.header.block_hash())
+        .collect();
+    let assigned_hashes = Arc::new(Mutex::new(hashes));
+    let hashes_for_worker = Arc::clone(&assigned_hashes);
+    let acc_state = Arc::clone(&acc);
+    let peer = peer_lock.iter().choose(&mut rng).copied().unwrap();
+    let port = NETWORK.port();
+    let signal = done.clone();
+    tracing::info!("Spawning worker {worker_id}");
+    let handle = tokio::task::spawn(async move {
+        fetch_blocks(
+            acc_state,
+            hashes_for_worker,
+            (peer, port),
+            signal,
+            worker_id,
+        )
+        .await;
+    });
+    let worker = Worker {
+        worker_id,
+        hashes: assigned_hashes,
+        task: handle,
+    };
+    workers.push(worker);
     tracing::info!("All tasks spawned");
     let mut interval = tokio::time::interval(Duration::from_millis(250));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
