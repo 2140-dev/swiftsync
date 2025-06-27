@@ -302,6 +302,7 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_received_message(
     message: NetworkMessage,
     ctx: &mut ConnectionContext,

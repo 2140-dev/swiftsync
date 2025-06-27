@@ -23,6 +23,7 @@ impl ZerolikeExt for Work {
 }
 
 // Attributes of a height in the Bitcoin blockchain.
+#[allow(unused)]
 trait HeightExt: Clone + Copy + std::hash::Hash + PartialEq + Eq + PartialOrd + Ord {
     fn increment(&self) -> Self;
 
@@ -80,6 +81,7 @@ impl IndexedHeader {
 }
 
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub enum AcceptHeaderChanges {
     Accepted {
         connected_at: IndexedHeader,
@@ -162,26 +164,6 @@ impl BlockTree {
         }
     }
 
-    pub(crate) fn from_header(height: impl Into<Height>, header: Header, network: Network) -> Self {
-        let height = height.into();
-        let hash = header.block_hash();
-        let tip = Tip {
-            hash,
-            height,
-            next_work_required: Some(header.bits),
-        };
-        let mut headers = HashMap::with_capacity(20_000);
-        let block_node = BlockNode::new(height, header, header.work());
-        headers.insert(hash, block_node);
-        Self {
-            canonical_hashes: BTreeMap::new(),
-            headers,
-            active_tip: tip,
-            candidate_forks: Vec::with_capacity(2),
-            network,
-        }
-    }
-
     pub(crate) fn accept_header(&mut self, new_header: Header) -> AcceptHeaderChanges {
         let new_hash = new_header.block_hash();
         let prev_hash = new_header.prev_blockhash;
@@ -247,6 +229,7 @@ impl BlockTree {
                 } else {
                     fork.next_work_required
                 };
+                #[allow(clippy::collapsible_if)]
                 if let Some(work) = next_work {
                     if new_header.bits.ne(&work) {
                         return AcceptHeaderChanges::Rejected(HeaderRejection::InvalidPow {
@@ -299,6 +282,7 @@ impl BlockTree {
                 } else {
                     Some(node.header.bits)
                 };
+                #[allow(clippy::collapsible_if)]
                 if let Some(work) = next_work {
                     if new_header.bits.ne(&work) {
                         return AcceptHeaderChanges::Rejected(HeaderRejection::InvalidPow {

@@ -1,4 +1,9 @@
-use std::{collections::HashSet, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    net::IpAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use accumulator::Accumulator;
 use bitcoin::{
@@ -6,6 +11,8 @@ use bitcoin::{
     p2p::{message::NetworkMessage, message_blockdata::GetHeadersMessage},
     secp256k1::rand::{seq::IteratorRandom, thread_rng},
 };
+#[allow(unused)]
+use bitcoin::{OutPoint, Txid};
 use headers::{AcceptHeaderChanges, BlockTree};
 use loader::update_acc_from_outpoint_set;
 use p2p::{
@@ -20,15 +27,24 @@ use peers::{
 };
 use tokio::{
     net::TcpStream,
-    sync::{Mutex, oneshot},
-    time::timeout,
+    select,
+    sync::{Mutex, mpsc, oneshot},
+    task::JoinHandle,
+    time::{MissedTickBehavior, timeout},
 };
+use worker::fetch_blocks;
 
 mod headers;
 mod loader;
+mod worker;
 
-const NETWORK: Network = Network::Bitcoin;
-const SNAPSHOT_HEIGHT: u32 = 880_000;
+pub const NETWORK: Network = Network::Signet;
+const SNAPSHOT_HEIGHT: u32 = 160_000;
+const WORKERS: usize = 1;
+#[allow(unused)]
+const DUP_COINBASE_ONE: &str = "e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468";
+#[allow(unused)]
+const DUP_COINBASE_TWO: &str = "d5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599";
 
 async fn bootstrap(peers: Arc<Mutex<HashSet<IpAddr>>>) {
     let seeds = NETWORK.dns_seeds();
@@ -59,6 +75,7 @@ async fn sync_header_chain(
                     .no_cmpct_blocks()
                     .announce_by_inv()
                     .add_start_height(0)
+                    .change_network(NETWORK)
                     .open_connection((ip_addr, expected_port))
                     .await;
                 tracing::info!("Successful connection to peer {}", ip_addr);
@@ -110,22 +127,12 @@ async fn request_headers_from_connection(
                         let apply_header = chain.accept_header(header);
                         match apply_header {
                             AcceptHeaderChanges::Accepted { connected_at } => {
-                                // tracing::info!(
-                                // "Accepted header: {}",
-                                // connected_at.header.block_hash()
-                                // );
                                 if connected_at.height.eq(&SNAPSHOT_HEIGHT) {
                                     tracing::info!("Headers synced to snapshot height");
                                     return;
                                 }
                             }
-                            AcceptHeaderChanges::Reorganization {
-                                accepted: _,
-                                disconnected: _,
-                            } => return,
-                            AcceptHeaderChanges::ExtendedFork { connected_at: _ } => return,
-                            AcceptHeaderChanges::Rejected(_) => return,
-                            AcceptHeaderChanges::Duplicate => return,
+                            _ => return,
                         }
                     }
                 }
@@ -163,6 +170,24 @@ async fn wait_for_header_response(
     }
 }
 
+#[derive(Debug)]
+struct Worker {
+    worker_id: usize,
+    hashes: Arc<Mutex<HashSet<BlockHash>>>,
+    task: JoinHandle<()>,
+}
+
+async fn check_workers(workers: &[Worker]) -> bool {
+    let mut all_empty = true;
+    for worker in workers.iter() {
+        let lock = worker.hashes.lock().await;
+        if !lock.is_empty() {
+            all_empty = false;
+        }
+    }
+    all_empty
+}
+
 #[tokio::main]
 async fn main() {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
@@ -172,7 +197,21 @@ async fn main() {
     let path = args
         .next()
         .expect("Provide a file path to the utxos.sqlite/outpoints.sqlite file");
-    let acc = Arc::new(Mutex::new(Accumulator::new()));
+    #[allow(unused_mut)]
+    let mut acc = Accumulator::new();
+    // These outpoints will show up twice, but can only be spent once
+    //
+    //let coinbase_one = DUP_COINBASE_ONE.parse::<Txid>().unwrap();
+    // let coinbase_two = DUP_COINBASE_TWO.parse::<Txid>().unwrap();
+    // acc.spend(OutPoint {
+    // txid: coinbase_one,
+    //  vout: 0,
+    // });
+    // acc.spend(OutPoint {
+    // txid: coinbase_two,
+    // vout: 0,
+    // });
+    let acc = Arc::new(Mutex::new(acc));
     let peers = Arc::new(Mutex::new(HashSet::<IpAddr>::new()));
     tracing::info!("Starting DNS thread");
     let dns_mutex = Arc::clone(&peers);
@@ -187,6 +226,91 @@ async fn main() {
     });
     tracing::info!("Loading OutPoint set and updating the accumulator");
     let utxo_mutex = Arc::clone(&acc);
-    tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, utxo_mutex));
+    let utxo_handle =
+        tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, utxo_mutex));
     let _ = rx.await;
+    tracing::info!("Ready to spawn workers");
+    let now = Instant::now();
+    let chain_lock = chain.lock().await;
+    let mut rng = thread_rng();
+    let peer_lock = peers.lock().await;
+    let blocks_per_worker = (chain_lock.height() as usize + 1) / WORKERS;
+    let mut workers = Vec::new();
+    let mut worker_id: usize = 0;
+    let mut hashes = HashSet::new();
+    let (done, mut rx) = mpsc::channel(WORKERS);
+    let assume_valid_hash = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c"
+        .parse::<BlockHash>()
+        .unwrap();
+    assert_eq!(chain_lock.tip_hash(), assume_valid_hash);
+    for indexed in chain_lock.iter_headers() {
+        let hash = indexed.header.block_hash();
+        hashes.insert(hash);
+        if hashes.len() % blocks_per_worker == 0 && !hashes.is_empty() {
+            let assigned_hashes = Arc::new(Mutex::new(hashes.clone()));
+            let hashes_for_worker = Arc::clone(&assigned_hashes);
+            let acc_state = Arc::clone(&acc);
+            let peer = peer_lock.iter().choose(&mut rng).copied().unwrap();
+            let port = NETWORK.port();
+            let done = done.clone();
+            tracing::info!("Spawning worker {worker_id}");
+            let handle = tokio::task::spawn(async move {
+                fetch_blocks(acc_state, hashes_for_worker, (peer, port), done, worker_id).await;
+            });
+            let worker = Worker {
+                worker_id,
+                hashes: assigned_hashes,
+                task: handle,
+            };
+            workers.push(worker);
+            worker_id += 1;
+            hashes.clear();
+        }
+    }
+    if !hashes.is_empty() {
+        let last_worker = workers.last_mut().unwrap();
+        let mut hash_lock = last_worker.hashes.lock().await;
+        hash_lock.extend(hashes);
+    }
+    tracing::info!("All tasks spawned");
+    let mut interval = tokio::time::interval(Duration::from_millis(250));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        select! {
+            done = rx.recv() => {
+                if let Some(done) = done {
+                    tracing::info!("Worker {done} is done");
+                    if check_workers(&workers).await {
+                        tracing::info!("All workers are done");
+                        break;
+                    }
+                }
+            },
+            _ = interval.tick() => {
+                for worker in &mut workers {
+                    // Redeploy failed tasks
+                    if worker.task.is_finished() {
+                        let hashes = worker.hashes.lock().await;
+                        if !hashes.is_empty() {
+                            tracing::info!("Redeploying {}", worker.worker_id);
+                            let assigned_hashes = Arc::clone(&worker.hashes);
+                            let acc_state = Arc::clone(&acc);
+                            let peer = peer_lock.iter().choose(&mut rng).copied().unwrap();
+                            let port = NETWORK.port();
+                            let done = done.clone();
+                            let worker_id = worker.worker_id;
+                            let handle = tokio::task::spawn(async move {
+                                fetch_blocks(acc_state, assigned_hashes, (peer, port), done, worker_id).await;
+                            });
+                            worker.task = handle;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let _ = utxo_handle.await;
+    let done = now.elapsed().as_secs() / 60;
+    tracing::info!("Block download complete it {done} minutes");
+    tracing::info!("Verified: {}", acc.lock().await.is_zero());
 }
