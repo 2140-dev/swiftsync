@@ -101,9 +101,7 @@ async fn main() {
     let dns_mutex = Arc::clone(&peers);
     tokio::task::spawn(async move { bootstrap(dns_mutex).await });
     tracing::info!("Loading OutPoint set and updating the accumulator");
-    let utxo_mutex = Arc::clone(&acc);
-    let utxo_handle =
-        tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, utxo_mutex));
+    let utxo_handle = tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path));
     let path = match NETWORK {
         Network::Signet => "../contrib/signet_headers.sqlite",
         Network::Bitcoin => "../contrib/bitcoin_headers.sqlite",
@@ -216,8 +214,9 @@ async fn main() {
             }
         }
     }
-    let _ = utxo_handle.await;
+    let utxo_acc = utxo_handle.await.unwrap();
     let done = now.elapsed().as_secs();
     tracing::info!("Block download complete in {done} seconds");
-    tracing::info!("Verified: {}", acc.lock().await.is_zero());
+    assert_eq!(utxo_acc, *acc.lock().await);
+    tracing::info!("Verified");
 }
