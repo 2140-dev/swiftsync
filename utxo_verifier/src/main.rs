@@ -7,39 +7,34 @@ use std::{
 
 use accumulator::Accumulator;
 use bitcoin::{
-    BlockHash, Network, block,
-    p2p::{message::NetworkMessage, message_blockdata::GetHeadersMessage},
     secp256k1::rand::{seq::IteratorRandom, thread_rng},
+    BlockHash, Network,
 };
 #[allow(unused)]
 use bitcoin::{OutPoint, Txid};
-use headers::{AcceptHeaderChanges, BlockTree};
-use loader::update_acc_from_outpoint_set;
-use p2p::{
-    ConnectionBuilder, ConnectionContext,
-    tokio_ext::{
-        ReadError, TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt,
-    },
-};
+use loader::{get_block_hashes_from_store, update_acc_from_outpoint_set};
+
 use peers::{
-    PortExt, SeedsExt,
     dns::{DnsQuery, TokioDnsExt},
+    PortExt, SeedsExt,
 };
 use tokio::{
-    net::TcpStream,
     select,
-    sync::{Mutex, mpsc, oneshot},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
-    time::{MissedTickBehavior, timeout},
+    time::MissedTickBehavior,
 };
 use worker::fetch_blocks;
 
-mod headers;
 mod loader;
 mod worker;
 
 pub const NETWORK: Network = Network::Signet;
 const SNAPSHOT_HEIGHT: u32 = 160_000;
+// Signet
+const ASSUME_VALID_HASH: &str = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c";
+// Bitcoin
+// const ASSSUME_VALID_HASH: &str = "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880";
 const WORKERS: usize = 16;
 #[allow(unused)]
 const DUP_COINBASE_ONE: &str = "e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468";
@@ -57,117 +52,6 @@ async fn bootstrap(peers: Arc<Mutex<HashSet<IpAddr>>>) {
         }
     }
     tracing::info!("DNS task exit");
-}
-
-async fn sync_header_chain(
-    peers: Arc<Mutex<HashSet<IpAddr>>>,
-    chain: Arc<Mutex<BlockTree>>,
-    done: oneshot::Sender<()>,
-) {
-    let expected_port = NETWORK.port();
-    loop {
-        let lock = peers.lock().await;
-        let peer = lock.iter().choose(&mut thread_rng()).copied();
-        drop(lock);
-        match peer {
-            Some(ip_addr) => {
-                let connection_result = ConnectionBuilder::new()
-                    .no_cmpct_blocks()
-                    .announce_by_inv()
-                    .add_start_height(0)
-                    .change_network(NETWORK)
-                    .open_connection((ip_addr, expected_port))
-                    .await;
-                tracing::info!("Successful connection to peer {}", ip_addr);
-                if let Ok((stream, ctx)) = connection_result {
-                    request_headers_from_connection(stream, ctx, Arc::clone(&chain)).await;
-                    let chain = chain.lock().await;
-                    if chain.height().eq(&SNAPSHOT_HEIGHT) {
-                        tracing::info!("Header sync task exit");
-                        done.send(()).unwrap();
-                        return;
-                    }
-                }
-            }
-            None => {
-                tracing::info!("No peer available for header sync. Waiting a few seconds.");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-        }
-    }
-}
-
-async fn request_headers_from_connection(
-    mut stream: TcpStream,
-    mut ctx: ConnectionContext,
-    chain: Arc<Mutex<BlockTree>>,
-) {
-    let mut chain = chain.lock().await;
-    loop {
-        let stop_hash = BlockHash::from_byte_array([0u8; 32]);
-        let request = GetHeadersMessage {
-            version: 0x00,
-            locator_hashes: vec![chain.tip_hash()],
-            stop_hash,
-        };
-        tracing::info!("Header chain height: {}", chain.height());
-        let message = NetworkMessage::GetHeaders(request);
-        if let Err(e) = stream.write_message(message, &mut ctx).await {
-            tracing::warn!("Header sync peer failed: {e}");
-        }
-        let timeout = timeout(
-            Duration::from_secs(5),
-            wait_for_header_response(&mut stream, &mut ctx),
-        )
-        .await;
-        match timeout {
-            Ok(responded) => match responded {
-                Ok(headers) => {
-                    for header in headers {
-                        let apply_header = chain.accept_header(header);
-                        match apply_header {
-                            AcceptHeaderChanges::Accepted { connected_at } => {
-                                if connected_at.height.eq(&SNAPSHOT_HEIGHT) {
-                                    tracing::info!("Headers synced to snapshot height");
-                                    return;
-                                }
-                            }
-                            _ => return,
-                        }
-                    }
-                }
-                Err(r) => {
-                    tracing::info!("Header sync peer encountered an error: {r}");
-                    return;
-                }
-            },
-            Err(_) => {
-                tracing::info!("Header sync peer timed out");
-                return;
-            }
-        }
-    }
-}
-
-async fn wait_for_header_response(
-    stream: &mut TcpStream,
-    ctx: &mut ConnectionContext,
-) -> Result<Vec<block::Header>, ReadError> {
-    loop {
-        let data = stream.read_message(ctx).await?;
-        if let Some(data) = data {
-            match data {
-                NetworkMessage::Ping(nonce) => {
-                    tracing::info!("Ping {nonce}");
-                    let _ = stream.write_message(NetworkMessage::Pong(nonce), ctx).await;
-                }
-                NetworkMessage::Headers(headers) => {
-                    return Ok(headers);
-                }
-                other => tracing::info!("{}", other.cmd()),
-            }
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -216,38 +100,29 @@ async fn main() {
     tracing::info!("Starting DNS thread");
     let dns_mutex = Arc::clone(&peers);
     tokio::task::spawn(async move { bootstrap(dns_mutex).await });
-    let chain = Arc::new(Mutex::new(BlockTree::from_genesis(NETWORK)));
-    let header_chain_mutex = Arc::clone(&chain);
-    let header_peer_mutex = Arc::clone(&peers);
-    let (tx, rx) = oneshot::channel();
-    tracing::info!("Background syncing header chain");
-    tokio::task::spawn(async move {
-        sync_header_chain(header_peer_mutex, header_chain_mutex, tx).await
-    });
     tracing::info!("Loading OutPoint set and updating the accumulator");
     let utxo_mutex = Arc::clone(&acc);
     let utxo_handle =
         tokio::task::spawn_blocking(move || update_acc_from_outpoint_set(path, utxo_mutex));
-    let _ = rx.await;
-    tracing::info!("Ready to spawn workers");
+    let path = match NETWORK {
+        Network::Signet => "../contrib/signet_headers.sqlite",
+        Network::Bitcoin => "../contrib/bitcoin_headers.sqlite",
+        _ => unimplemented!("unsupported network"),
+    };
+    let hashes = get_block_hashes_from_store(path, ASSUME_VALID_HASH.parse::<BlockHash>().unwrap());
+    let hashes = hashes
+        .into_iter()
+        .filter(|(height, _)| height.ne(&0))
+        .map(|(_, hash)| hash)
+        .collect::<HashSet<BlockHash>>();
     let now = Instant::now();
-    let chain_lock = chain.lock().await;
     let mut rng = thread_rng();
     let peer_lock = peers.lock().await;
-    let blocks_per_worker = (chain_lock.height() as usize + 1) / WORKERS;
+    let blocks_per_worker = (SNAPSHOT_HEIGHT as usize + 1) / WORKERS;
     let mut workers = Vec::new();
     let mut worker_id: usize = 0;
     let (done, mut rx) = mpsc::channel(WORKERS);
-    let assume_valid_hash = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c"
-        .parse::<BlockHash>()
-        .unwrap();
-    assert_eq!(chain_lock.tip_hash(), assume_valid_hash);
-    assert!(!acc.lock().await.is_zero());
-    let hashes = chain_lock
-        .iter_headers()
-        .filter(|indexed| indexed.height.ne(&0))
-        .map(|indexed| indexed.header.block_hash())
-        .collect::<HashSet<BlockHash>>();
+    tracing::info!("Ready to spawn workers");
     let mut buf = HashSet::new();
     for hash in hashes {
         buf.insert(hash);

@@ -2,7 +2,10 @@ use std::{path::Path, sync::Arc, time::Instant};
 
 use accumulator::Accumulator;
 use bitcoin::{OutPoint, Txid};
+use std::collections::BTreeMap;
 use tokio::sync::Mutex;
+
+use bitcoin::{consensus, BlockHash};
 use rusqlite::Connection;
 
 const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
@@ -27,4 +30,30 @@ pub fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: Arc<Mutex<Accu
         }
     }
     tracing::info!("Done spending UTXOs in {} seconds", now.elapsed().as_secs());
+}
+
+pub fn get_block_hashes_from_store<P: AsRef<Path>>(
+    path: P,
+    assume_valid: BlockHash,
+) -> BTreeMap<u32, BlockHash> {
+    let mut hashes = BTreeMap::new();
+    let conn = Connection::open(path).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT height, block_hash FROM headers")
+        .unwrap();
+    tracing::info!("Loading hashes from storage");
+    let now = Instant::now();
+    let mut rows = stmt.query([]).unwrap();
+    while let Some(row) = rows.next().unwrap() {
+        let height: u32 = row.get(0).unwrap();
+        let hash: [u8; 32] = row.get(1).unwrap();
+        let block_hash: BlockHash = consensus::deserialize(&hash).unwrap();
+        hashes.insert(height, block_hash);
+        if block_hash.eq(&assume_valid) {
+            let secs = now.elapsed().as_secs();
+            tracing::info!("Done loading hashes in {} seconds", secs);
+            return hashes;
+        }
+    }
+    panic!("expected assume valid hash");
 }
