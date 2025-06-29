@@ -39,5 +39,5 @@ fn update_acc_from_outpoint_set<P: AsRef<Path>>(path: P, acc: &mut Accumulator) 
 #[test]
 fn test_static_utxo_set() {
     let mut acc = Accumulator::new();
-    update_acc_from_outpoint_set("../signet_outpoints.sqlite", &mut acc);
+    update_acc_from_outpoint_set("../contrib/signet_outpoints.sqlite", &mut acc);
 }
