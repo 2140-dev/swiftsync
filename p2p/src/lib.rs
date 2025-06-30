@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use bitcoin::{
@@ -11,6 +11,7 @@ use bitcoin::{
         message_network::VersionMessage,
     },
 };
+use validation::ValidationExt;
 
 #[cfg(feature = "tokio")]
 pub mod tokio_ext;
@@ -19,8 +20,6 @@ mod validation;
 
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
-const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
 
@@ -52,32 +51,78 @@ impl ProtocolVerison {
 
 #[derive(Debug)]
 pub struct ConnectionContext {
-    transport: Transport,
-    negotiation: Negotiation,
-    offered: Offered,
-    their_services: ServiceFlags,
-    fee_filter: FeeRate,
-    final_alert: bool,
-    last_message: Instant,
-    total_addrs: usize,
+    read_ctx: ReadContext,
+    write_ctx: WriteContext,
 }
 
 impl ConnectionContext {
-    fn new(transport: Transport, negotiation: Negotiation, offered: Offered, their_services: ServiceFlags) -> Self {
-        Self {
-            transport,
+    fn new(
+        write_half: WriteHalf,
+        read_half: ReadHalf,
+        negotiation: Negotiation,
+        their_services: ServiceFlags,
+    ) -> Self {
+        let read_ctx = ReadContext {
+            read_half,
             negotiation,
-            offered,
-            their_services,
             fee_filter: FeeRate::BROADCAST_MIN,
-            final_alert: false,
             last_message: Instant::now(),
-            total_addrs: 0,
+            final_alert: false,
+            addrs_received: 0,
+        };
+        let write_ctx = WriteContext {
+            write_half,
+            negotiation,
+            their_services,
+        };
+        Self {
+            read_ctx,
+            write_ctx,
         }
     }
 
+    pub fn into_split(self) -> (ReadContext, WriteContext) {
+        (self.read_ctx, self.write_ctx)
+    }
+
     pub fn addrs_received(&self) -> usize {
-        self.total_addrs
+        self.read_ctx.addrs_received
+    }
+
+    pub fn last_message(&self) -> Instant {
+        self.read_ctx.last_message
+    }
+
+    pub fn fee_filter(&self) -> FeeRate {
+        self.read_ctx.fee_filter
+    }
+}
+
+impl AsMut<ReadContext> for ConnectionContext {
+    fn as_mut(&mut self) -> &mut ReadContext {
+        &mut self.read_ctx
+    }
+}
+
+impl AsMut<WriteContext> for ConnectionContext {
+    fn as_mut(&mut self) -> &mut WriteContext {
+        &mut self.write_ctx
+    }
+}
+
+#[derive(Debug)]
+pub struct ReadContext {
+    read_half: ReadHalf,
+    negotiation: Negotiation,
+    fee_filter: FeeRate,
+    final_alert: bool,
+    last_message: Instant,
+    addrs_received: usize,
+}
+
+impl ReadContext {
+    pub fn addrs_received(&self) -> usize {
+        self.addrs_received
     }
 
     pub fn last_message(&self) -> Instant {
@@ -86,6 +131,100 @@ impl ConnectionContext {
 
     pub fn fee_filter(&self) -> FeeRate {
         self.fee_filter
+    }
+
+    fn ok_to_recv_message(&mut self, message: &NetworkMessage) -> bool {
+        if matches!(
+            message,
+            NetworkMessage::FilterClear
+                | NetworkMessage::FilterAdd(_)
+                | NetworkMessage::FilterLoad(_)
+                | NetworkMessage::WtxidRelay
+                | NetworkMessage::SendAddrV2
+                | NetworkMessage::MemPool
+                | NetworkMessage::Verack
+                | NetworkMessage::Version(_)
+        ) {
+            return false;
+        }
+        if matches!(message, NetworkMessage::Alert(_)) {
+            if !self.final_alert {
+                self.final_alert = true;
+            } else {
+                return false;
+            }
+        }
+        if matches!(message, NetworkMessage::SendHeaders) {
+            // No check for duplicate `sendheaders` for now
+            self.negotiation.send_headers.them = true;
+        }
+        true
+    }
+
+    fn is_valid(&mut self, message: &NetworkMessage) -> bool {
+        match &message {
+            NetworkMessage::FeeFilter(f) => {
+                if *f < 0 {
+                    false
+                } else {
+                    let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
+                    self.fee_filter = fee_rate;
+                    true
+                }
+            }
+            NetworkMessage::Headers(h) => h.is_valid(),
+            NetworkMessage::GetData(r) => r.0.is_valid(),
+            NetworkMessage::Inv(r) => r.0.is_valid(),
+            _ => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct WriteContext {
+    write_half: WriteHalf,
+    negotiation: Negotiation,
+    their_services: ServiceFlags,
+}
+
+impl WriteContext {
+    fn ok_to_send(&self, message: &NetworkMessage) -> bool {
+        if matches!(
+            message,
+            NetworkMessage::FilterClear
+                | NetworkMessage::FilterAdd(_)
+                | NetworkMessage::FilterLoad(_)
+                | NetworkMessage::Alert(_)
+                | NetworkMessage::WtxidRelay
+                | NetworkMessage::SendAddrV2
+                | NetworkMessage::SendCmpct(_)
+                | NetworkMessage::SendHeaders
+                | NetworkMessage::MemPool
+                | NetworkMessage::Verack
+                | NetworkMessage::Version(_)
+        ) {
+            return false;
+        }
+        if matches!(message, NetworkMessage::Addr(_)) && self.negotiation.addrv2.agree() {
+            return false;
+        }
+        if matches!(
+            message,
+            NetworkMessage::BlockTxn(_) | NetworkMessage::CmpctBlock(_)
+        ) && !self.negotiation.cmpct_block.agree()
+        {
+            return false;
+        }
+        if matches!(
+            message,
+            NetworkMessage::GetCFilters(_)
+                | NetworkMessage::GetCFCheckpt(_)
+                | NetworkMessage::GetCFHeaders(_)
+        ) && !self.their_services.has(ServiceFlags::COMPACT_FILTERS)
+        {
+            return false;
+        }
+        true
     }
 }
 
@@ -100,8 +239,6 @@ pub struct ConnectionBuilder {
     offer: Offered,
     start_height: i32,
     user_agent: String,
-    handshake_timeout: Duration,
-    connection_timeout: Duration,
 }
 
 impl ConnectionBuilder {
@@ -116,8 +253,6 @@ impl ConnectionBuilder {
             offer: Offered::default(),
             start_height: 0,
             user_agent: DEFAULT_USER_AGENT.to_string(),
-            handshake_timeout: HANDSHAKE_TIMEOUT,
-            connection_timeout: CONNECTION_TIMEOUT,
         }
     }
 
@@ -156,13 +291,6 @@ impl ConnectionBuilder {
         }
     }
 
-    pub fn connection_timeout(self, timeout: Duration) -> Self {
-        Self {
-            connection_timeout: timeout,
-            ..self
-        }
-    }
-
     pub fn set_user_agent(self, user_agent: String) -> Self {
         Self { user_agent, ..self }
     }
@@ -193,11 +321,11 @@ impl Default for ConnectionBuilder {
 }
 
 #[derive(Debug)]
-enum Transport {
+enum WriteHalf {
     V1(Magic),
 }
 
-impl Transport {
+impl WriteHalf {
     fn serialize_message(&mut self, message: NetworkMessage) -> Vec<u8> {
         match self {
             Self::V1(magic) => {
@@ -208,12 +336,29 @@ impl Transport {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
+enum ReadHalf {
+    V1(Magic),
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 struct Negotiation {
-    wtxid_relay: bool,
-    addrv2: bool,
-    cmpct_block: bool,
-    send_headers: bool,
+    wtxid_relay: TwoParty,
+    addrv2: TwoParty,
+    cmpct_block: TwoParty,
+    send_headers: TwoParty,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TwoParty {
+    us: bool,
+    them: bool,
+}
+
+impl TwoParty {
+    fn agree(&self) -> bool {
+        self.us && self.them
+    }
 }
 
 #[derive(Debug)]
@@ -234,38 +379,6 @@ impl Default for Offered {
         }
     }
 }
-
-#[derive(Debug, Clone)]
-pub enum HandshakeError {
-    TooLowVersion(ProtocolVerison),
-    IrrelevantMessage(NetworkMessage),
-    ConnectedToSelf,
-    BadDecoy,
-    UnsupportedFeature,
-    TimedOut,
-}
-
-impl std::fmt::Display for HandshakeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TimedOut => write!(f, "the handshake timed out."),
-            Self::IrrelevantMessage(m) => {
-                write!(f, "unexpected message during handshake: {}", m.cmd())
-            }
-            Self::ConnectedToSelf => write!(f, "accidental connection to self"),
-            Self::BadDecoy => write!(f, "expected a message but got a decoy"),
-            Self::UnsupportedFeature => write!(
-                f,
-                "a feature we require is not supported by the connection."
-            ),
-            Self::TooLowVersion(version) => {
-                write!(f, "the remote peer had a too-low version: {}", version.0)
-            }
-        }
-    }
-}
-
-impl std::error::Error for HandshakeError {}
 
 pub(crate) struct MessageHeader {
     magic: Magic,
@@ -318,3 +431,91 @@ fn make_version(
         relay: false,
     }
 }
+
+#[allow(clippy::result_large_err)]
+fn interpret_first_message(
+    message: NetworkMessage,
+    nonce: u64,
+    their_expected_version: ProtocolVerison,
+    their_expected_services: ServiceFlags,
+) -> Result<(), HandshakeError> {
+    if let NetworkMessage::Version(version) = message {
+        if version.nonce.eq(&nonce) {
+            return Err(HandshakeError::ConnectedToSelf);
+        }
+        if version.version < their_expected_version.0 {
+            return Err(HandshakeError::TooLowVersion(ProtocolVerison(
+                version.version,
+            )));
+        }
+        if !version.services.has(their_expected_services) {
+            return Err(HandshakeError::UnsupportedFeature);
+        }
+    } else {
+        return Err(HandshakeError::IrrelevantMessage(message));
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum ParseMessageError {
+    UnexpectedMagic { want: Magic, got: Magic },
+    AbsurdSize { message_size: u32 },
+    Consensus(consensus::ParseError),
+    Deserialize(consensus::encode::DeserializeError),
+}
+
+impl From<consensus::ParseError> for ParseMessageError {
+    fn from(value: bitcoin::consensus::ParseError) -> Self {
+        Self::Consensus(value)
+    }
+}
+
+impl From<consensus::encode::DeserializeError> for ParseMessageError {
+    fn from(value: consensus::encode::DeserializeError) -> Self {
+        Self::Deserialize(value)
+    }
+}
+
+impl std::fmt::Display for ParseMessageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Deserialize(d) => write!(f, "{d}"),
+            Self::Consensus(c) => write!(f, "{c}"),
+            Self::AbsurdSize { message_size } => write!(f, "absurd message size: {message_size}"),
+            Self::UnexpectedMagic { want, got } => write!(f, "expected magic: {want}, got: {got}"),
+        }
+    }
+}
+
+impl std::error::Error for ParseMessageError {}
+
+#[derive(Debug, Clone)]
+pub enum HandshakeError {
+    TooLowVersion(ProtocolVerison),
+    IrrelevantMessage(NetworkMessage),
+    ConnectedToSelf,
+    BadDecoy,
+    UnsupportedFeature,
+}
+
+impl std::fmt::Display for HandshakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IrrelevantMessage(m) => {
+                write!(f, "unexpected message during handshake: {}", m.cmd())
+            }
+            Self::ConnectedToSelf => write!(f, "accidental connection to self"),
+            Self::BadDecoy => write!(f, "expected a message but got a decoy"),
+            Self::UnsupportedFeature => write!(
+                f,
+                "a feature we require is not supported by the connection."
+            ),
+            Self::TooLowVersion(version) => {
+                write!(f, "the remote peer had a too-low version: {}", version.0)
+            }
+        }
+    }
+}
+
+impl std::error::Error for HandshakeError {}
