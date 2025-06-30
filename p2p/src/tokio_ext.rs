@@ -10,7 +10,6 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::{
     io::{self, AsyncReadExt},
     net::TcpStream,
-    time::timeout,
 };
 
 use crate::{
@@ -36,9 +35,7 @@ impl TokioConnectionExt for ConnectionBuilder {
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         let socket_addr = to.into();
-        let mut tcp_stream = timeout(self.connection_timeout, TcpStream::connect(socket_addr))
-            .await
-            .map_err(|_| TokioConnectionError::Protocol(HandshakeError::TimedOut))??;
+        let mut tcp_stream = TcpStream::connect(socket_addr).await?;
         // Make a V2 connection here
         let mut negotiation = Negotiation::default();
         let magic = Magic::from_params(self.network);
@@ -97,12 +94,7 @@ impl TokioConnectionExt for ConnectionBuilder {
             tcp_stream.write_all(&msg_bytes).await?;
             tcp_stream.flush().await?;
         }
-        timeout(
-            self.handshake_timeout,
-            negotiate_handshake(&mut tcp_stream, &mut read_half, &mut negotiation),
-        )
-        .await
-        .map_err(|_| TokioConnectionError::Protocol(HandshakeError::TimedOut))??;
+        negotiate_handshake(&mut tcp_stream, &mut read_half, &mut negotiation).await?;
         let msg_bytes = write_half.serialize_message(NetworkMessage::Verack);
         tcp_stream.write_all(&msg_bytes).await?;
         tcp_stream.flush().await?;

@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use bitcoin::{
@@ -20,8 +20,6 @@ mod validation;
 
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
-const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
 
@@ -241,8 +239,6 @@ pub struct ConnectionBuilder {
     offer: Offered,
     start_height: i32,
     user_agent: String,
-    handshake_timeout: Duration,
-    connection_timeout: Duration,
 }
 
 impl ConnectionBuilder {
@@ -257,8 +253,6 @@ impl ConnectionBuilder {
             offer: Offered::default(),
             start_height: 0,
             user_agent: DEFAULT_USER_AGENT.to_string(),
-            handshake_timeout: HANDSHAKE_TIMEOUT,
-            connection_timeout: CONNECTION_TIMEOUT,
         }
     }
 
@@ -293,13 +287,6 @@ impl ConnectionBuilder {
     pub fn add_start_height(self, start_height: i32) -> Self {
         Self {
             start_height,
-            ..self
-        }
-    }
-
-    pub fn connection_timeout(self, timeout: Duration) -> Self {
-        Self {
-            connection_timeout: timeout,
             ..self
         }
     }
@@ -400,13 +387,11 @@ pub enum HandshakeError {
     ConnectedToSelf,
     BadDecoy,
     UnsupportedFeature,
-    TimedOut,
 }
 
 impl std::fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TimedOut => write!(f, "the handshake timed out."),
             Self::IrrelevantMessage(m) => {
                 write!(f, "unexpected message during handshake: {}", m.cmd())
             }
