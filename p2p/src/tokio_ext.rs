@@ -13,8 +13,8 @@ use tokio::{
 };
 
 use crate::{
-    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ProtocolVerison,
-    ReadContext, ReadHalf, WriteContext, WriteHalf, make_version,
+    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
+    ReadContext, ReadHalf, WriteContext, WriteHalf, interpret_first_message, make_version,
 };
 
 pub trait TokioConnectionExt {
@@ -51,72 +51,54 @@ impl TokioConnectionExt for ConnectionBuilder {
             self.user_agent,
             nonce,
         ));
-        let msg_bytes = write_half.serialize_message(version);
-        tcp_stream.write_all(&msg_bytes).await?;
-        tcp_stream.flush().await?;
+        write_message(&mut tcp_stream, version, &mut write_half).await?;
         let their_version = read_half.read_message(&mut tcp_stream).await?;
         match their_version {
             Some(version) => {
-                if let NetworkMessage::Version(version) = version {
-                    if version.nonce.eq(&nonce) {
-                        return Err(TokioConnectionError::Protocol(
-                            HandshakeError::ConnectedToSelf,
-                        ));
-                    }
-                    if version.version < self.their_version.0 {
-                        return Err(TokioConnectionError::Protocol(
-                            HandshakeError::TooLowVersion(ProtocolVerison(version.version)),
-                        ));
-                    }
-                    if !version.services.has(self.their_services) {
-                        return Err(TokioConnectionError::Protocol(
-                            HandshakeError::UnsupportedFeature,
-                        ));
-                    }
-                } else {
-                    return Err(TokioConnectionError::Protocol(
-                        HandshakeError::IrrelevantMessage(version),
-                    ));
-                }
+                interpret_first_message(version, nonce, self.their_version, self.their_services)
+                    .map_err(TokioConnectionError::Protocol)?;
             }
             None => return Err(TokioConnectionError::Protocol(HandshakeError::BadDecoy)),
         };
         // Send the services we offer
         if self.offer.addrv2 {
-            let send_addrv2 = NetworkMessage::SendAddrV2;
-            let msg_bytes = write_half.serialize_message(send_addrv2);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
+            write_message(&mut tcp_stream, NetworkMessage::SendAddrV2, &mut write_half).await?;
         }
         if self.offer.wtxid_relay {
-            let send_headers = NetworkMessage::WtxidRelay;
-            let msg_bytes = write_half.serialize_message(send_headers);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
+            write_message(&mut tcp_stream, NetworkMessage::WtxidRelay, &mut write_half).await?;
         }
         negotiate_handshake(&mut tcp_stream, &mut read_half, &mut negotiation).await?;
-        let msg_bytes = write_half.serialize_message(NetworkMessage::Verack);
-        tcp_stream.write_all(&msg_bytes).await?;
-        tcp_stream.flush().await?;
+        write_message(&mut tcp_stream, NetworkMessage::Verack, &mut write_half).await?;
         if self.offer.cmpct_block {
-            let send_headers = NetworkMessage::SendCmpct(SendCmpct {
+            let send_cmpct = NetworkMessage::SendCmpct(SendCmpct {
                 send_compact: self.offer.cmpct_block,
                 version: 0x02,
             });
-            let msg_bytes = write_half.serialize_message(send_headers);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
+            write_message(&mut tcp_stream, send_cmpct, &mut write_half).await?;
         }
         if self.offer.send_headers {
-            let send_headers = NetworkMessage::SendHeaders;
-            let msg_bytes = write_half.serialize_message(send_headers);
-            tcp_stream.write_all(&msg_bytes).await?;
-            tcp_stream.flush().await?;
+            write_message(
+                &mut tcp_stream,
+                NetworkMessage::SendHeaders,
+                &mut write_half,
+            )
+            .await?;
         }
         let context =
             ConnectionContext::new(write_half, read_half, negotiation, self.their_services);
         Ok((tcp_stream, context))
     }
+}
+
+async fn write_message<W: AsyncWriteExt + Send + Sync + Unpin>(
+    write: &mut W,
+    message: NetworkMessage,
+    write_half: &mut WriteHalf,
+) -> Result<(), io::Error> {
+    let msg_bytes = write_half.serialize_message(message);
+    write.write_all(&msg_bytes).await?;
+    write.flush().await?;
+    Ok(())
 }
 
 async fn negotiate_handshake(
@@ -149,34 +131,39 @@ trait TokioTransportExt {
     async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
         &mut self,
         reader: &mut R,
-    ) -> Result<Option<NetworkMessage>, ReadMessageError>;
+    ) -> Result<Option<NetworkMessage>, ReadError>;
 }
 
 impl TokioTransportExt for ReadHalf {
     async fn read_message<R: AsyncReadExt + Send + Sync + Unpin>(
         &mut self,
         reader: &mut R,
-    ) -> Result<Option<NetworkMessage>, ReadMessageError> {
+    ) -> Result<Option<NetworkMessage>, ReadError> {
         match self {
             Self::V1(magic) => {
                 let mut message_buf = vec![0_u8; 24];
                 let _ = reader.read_exact(&mut message_buf).await?;
-                let header: crate::MessageHeader = consensus::deserialize_partial(&message_buf)?.0;
+                let header: crate::MessageHeader = consensus::deserialize_partial(&message_buf)
+                    .map_err(ParseMessageError::Consensus)?
+                    .0;
                 if header.magic != *magic {
-                    return Err(ReadMessageError::UnexpectedMagic {
+                    return Err(ParseMessageError::UnexpectedMagic {
                         want: *magic,
                         got: header.magic,
-                    });
+                    }
+                    .into());
                 }
                 if header.length > crate::MAX_MESSAGE_SIZE {
-                    return Err(ReadMessageError::AbsurdSize {
+                    return Err(ParseMessageError::AbsurdSize {
                         message_size: header.length,
-                    });
+                    }
+                    .into());
                 }
                 let mut contents_buf = vec![0_u8; header.length as usize];
                 let _ = reader.read_exact(&mut contents_buf).await?;
                 message_buf.extend_from_slice(&contents_buf);
-                let message: RawNetworkMessage = consensus::deserialize(&message_buf)?;
+                let message: RawNetworkMessage =
+                    consensus::deserialize(&message_buf).map_err(ParseMessageError::Deserialize)?;
                 Ok(Some(message.into_payload()))
             }
         }
@@ -221,9 +208,7 @@ async fn write_for_any<W: AsyncWriteExt + Send + Sync + Unpin>(
     if !ctx.ok_to_send(&message) {
         return Err(WriteError::NotRecommended(message));
     };
-    let msg_bytes = ctx.write_half.serialize_message(message);
-    writer.write_all(&msg_bytes).await?;
-    writer.flush().await?;
+    write_message(writer, message, &mut ctx.write_half).await?;
     Ok(())
 }
 
@@ -279,13 +264,12 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
     }
 }
 
-#[allow(clippy::result_large_err)]
 // Error implementation section
 #[derive(Debug)]
 pub enum TokioConnectionError {
     Io(io::Error),
     Protocol(HandshakeError),
-    Reader(ReadMessageError),
+    Reader(ReadError),
 }
 
 impl From<io::Error> for TokioConnectionError {
@@ -294,8 +278,8 @@ impl From<io::Error> for TokioConnectionError {
     }
 }
 
-impl From<ReadMessageError> for TokioConnectionError {
-    fn from(value: ReadMessageError) -> Self {
+impl From<ReadError> for TokioConnectionError {
+    fn from(value: ReadError) -> Self {
         Self::Reader(value)
     }
 }
@@ -336,15 +320,17 @@ impl Display for WriteError {
 #[derive(Debug)]
 pub enum ReadError {
     NonsenseMessage(NetworkMessage),
-    ReadMessageError(ReadMessageError),
+    ParseMessageError(ParseMessageError),
+    Io(io::Error),
     MessageMalformed,
 }
 
 impl Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ReadMessageError(r) => write!(f, "{r}"),
+            Self::ParseMessageError(r) => write!(f, "{r}"),
             Self::MessageMalformed => write!(f, "message data is malformed"),
+            Self::Io(io) => write!(f, "{io}"),
             Self::NonsenseMessage(n) => write!(f, "{}", n.cmd()),
         }
     }
@@ -352,49 +338,14 @@ impl Display for ReadError {
 
 impl std::error::Error for ReadError {}
 
-impl From<ReadMessageError> for ReadError {
-    fn from(value: ReadMessageError) -> Self {
-        Self::ReadMessageError(value)
+impl From<ParseMessageError> for ReadError {
+    fn from(value: ParseMessageError) -> Self {
+        Self::ParseMessageError(value)
     }
 }
 
-#[derive(Debug)]
-pub enum ReadMessageError {
-    UnexpectedMagic { want: Magic, got: Magic },
-    AbsurdSize { message_size: u32 },
-    Io(io::Error),
-    Consensus(consensus::ParseError),
-    Deserialize(consensus::encode::DeserializeError),
-}
-
-impl From<consensus::ParseError> for ReadMessageError {
-    fn from(value: bitcoin::consensus::ParseError) -> Self {
-        Self::Consensus(value)
-    }
-}
-
-impl From<consensus::encode::DeserializeError> for ReadMessageError {
-    fn from(value: consensus::encode::DeserializeError) -> Self {
-        Self::Deserialize(value)
-    }
-}
-
-impl From<io::Error> for ReadMessageError {
+impl From<io::Error> for ReadError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
     }
 }
-
-impl Display for ReadMessageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Deserialize(d) => write!(f, "{d}"),
-            Self::Io(io) => write!(f, "{io}"),
-            Self::Consensus(c) => write!(f, "{c}"),
-            Self::AbsurdSize { message_size } => write!(f, "absurd message size: {message_size}"),
-            Self::UnexpectedMagic { want, got } => write!(f, "expected magic: {want}, got: {got}"),
-        }
-    }
-}
-
-impl std::error::Error for ReadMessageError {}

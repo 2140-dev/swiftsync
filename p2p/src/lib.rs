@@ -380,36 +380,6 @@ impl Default for Offered {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum HandshakeError {
-    TooLowVersion(ProtocolVerison),
-    IrrelevantMessage(NetworkMessage),
-    ConnectedToSelf,
-    BadDecoy,
-    UnsupportedFeature,
-}
-
-impl std::fmt::Display for HandshakeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IrrelevantMessage(m) => {
-                write!(f, "unexpected message during handshake: {}", m.cmd())
-            }
-            Self::ConnectedToSelf => write!(f, "accidental connection to self"),
-            Self::BadDecoy => write!(f, "expected a message but got a decoy"),
-            Self::UnsupportedFeature => write!(
-                f,
-                "a feature we require is not supported by the connection."
-            ),
-            Self::TooLowVersion(version) => {
-                write!(f, "the remote peer had a too-low version: {}", version.0)
-            }
-        }
-    }
-}
-
-impl std::error::Error for HandshakeError {}
-
 pub(crate) struct MessageHeader {
     magic: Magic,
     _command: CommandString,
@@ -461,3 +431,91 @@ fn make_version(
         relay: false,
     }
 }
+
+#[allow(clippy::result_large_err)]
+fn interpret_first_message(
+    message: NetworkMessage,
+    nonce: u64,
+    their_expected_version: ProtocolVerison,
+    their_expected_services: ServiceFlags,
+) -> Result<(), HandshakeError> {
+    if let NetworkMessage::Version(version) = message {
+        if version.nonce.eq(&nonce) {
+            return Err(HandshakeError::ConnectedToSelf);
+        }
+        if version.version < their_expected_version.0 {
+            return Err(HandshakeError::TooLowVersion(ProtocolVerison(
+                version.version,
+            )));
+        }
+        if !version.services.has(their_expected_services) {
+            return Err(HandshakeError::UnsupportedFeature);
+        }
+    } else {
+        return Err(HandshakeError::IrrelevantMessage(message));
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum ParseMessageError {
+    UnexpectedMagic { want: Magic, got: Magic },
+    AbsurdSize { message_size: u32 },
+    Consensus(consensus::ParseError),
+    Deserialize(consensus::encode::DeserializeError),
+}
+
+impl From<consensus::ParseError> for ParseMessageError {
+    fn from(value: bitcoin::consensus::ParseError) -> Self {
+        Self::Consensus(value)
+    }
+}
+
+impl From<consensus::encode::DeserializeError> for ParseMessageError {
+    fn from(value: consensus::encode::DeserializeError) -> Self {
+        Self::Deserialize(value)
+    }
+}
+
+impl std::fmt::Display for ParseMessageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Deserialize(d) => write!(f, "{d}"),
+            Self::Consensus(c) => write!(f, "{c}"),
+            Self::AbsurdSize { message_size } => write!(f, "absurd message size: {message_size}"),
+            Self::UnexpectedMagic { want, got } => write!(f, "expected magic: {want}, got: {got}"),
+        }
+    }
+}
+
+impl std::error::Error for ParseMessageError {}
+
+#[derive(Debug, Clone)]
+pub enum HandshakeError {
+    TooLowVersion(ProtocolVerison),
+    IrrelevantMessage(NetworkMessage),
+    ConnectedToSelf,
+    BadDecoy,
+    UnsupportedFeature,
+}
+
+impl std::fmt::Display for HandshakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IrrelevantMessage(m) => {
+                write!(f, "unexpected message during handshake: {}", m.cmd())
+            }
+            Self::ConnectedToSelf => write!(f, "accidental connection to self"),
+            Self::BadDecoy => write!(f, "expected a message but got a decoy"),
+            Self::UnsupportedFeature => write!(
+                f,
+                "a feature we require is not supported by the connection."
+            ),
+            Self::TooLowVersion(version) => {
+                write!(f, "the remote peer had a too-low version: {}", version.0)
+            }
+        }
+    }
+}
+
+impl std::error::Error for HandshakeError {}
