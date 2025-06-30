@@ -17,9 +17,11 @@ use crate::{
     ReadContext, ReadHalf, WriteContext, WriteHalf, interpret_first_message, make_version,
 };
 
+/// Connect to peers using `tokio`.
 pub trait TokioConnectionExt {
     type Error: Debug + Display + Send + Sync + std::error::Error;
 
+    /// Open a TCP connection to a peer.
     #[allow(async_fn_in_trait)]
     async fn open_connection(
         self,
@@ -150,7 +152,9 @@ impl TokioTransportExt for ReadHalf {
     }
 }
 
+/// Write bitcoin network messages directly over `tokio` TCP streams.
 pub trait TokioWriteNetworkMessageExt {
+    /// Write a message with the current context.
     #[allow(async_fn_in_trait)]
     async fn write_message(
         &mut self,
@@ -192,7 +196,12 @@ async fn write_for_any<W: AsyncWriteExt + Send + Sync + Unpin>(
     Ok(())
 }
 
+/// Read a message directly off a TCP stream.
 pub trait TokioReadNetworkMessageExt {
+    /// Try to read a message and error otherwise.
+    ///
+    /// This method performs some light validation to ensure the node is not sending spam or
+    /// non-sensical messages.
     #[allow(async_fn_in_trait)]
     async fn read_message(
         &mut self,
@@ -245,10 +254,15 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
 }
 
 // Error implementation section
+
+/// Errors that may occur when starting a connection.
 #[derive(Debug)]
 pub enum TokioConnectionError {
+    /// Read or write failure.
     Io(io::Error),
+    /// The handshake failed to malformed messages or a mis-match in preferences.
     Protocol(HandshakeError),
+    /// A message that was read violated the protocol.
     Reader(ReadError),
 }
 
@@ -276,9 +290,12 @@ impl Display for TokioConnectionError {
 
 impl std::error::Error for TokioConnectionError {}
 
+/// Errors when attempting to write a message.
 #[derive(Debug)]
 pub enum WriteError {
+    /// Writing to the stream failed.
     Io(io::Error),
+    /// The message is invalid or not supported.
     NotRecommended(NetworkMessage),
 }
 
@@ -297,10 +314,15 @@ impl Display for WriteError {
     }
 }
 
+/// Errors when reading messages off of the stream.
 #[derive(Debug)]
 pub enum ReadError {
+    /// The message violates the protocol. Normally, these are deprecated messages or messages that
+    /// should have been sent during the handshake.
     NonsenseMessage(NetworkMessage),
+    /// Parsing a message failed.
     ParseMessageError(ParseMessageError),
+    /// The stream was closed or reset.
     Io(io::Error),
 }
 

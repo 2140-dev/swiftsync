@@ -13,16 +13,20 @@ use bitcoin::{
 };
 use validation::ValidationExt;
 
+/// Extension traits for use with the `tokio` asynchronous runtime framework.
 #[cfg(feature = "tokio")]
 pub mod tokio_ext;
 
 mod validation;
 
+/// The maximum network message size in bytes.
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
+/// The default user agent field when sending a `version` message.
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
 const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
 
+/// A version of the Bitcoin peer-to-peer messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
 pub struct ProtocolVerison(pub u32);
 
@@ -49,6 +53,8 @@ impl ProtocolVerison {
     pub const PING_PONG: ProtocolVerison = ProtocolVerison(60001);
 }
 
+/// The context for the connection. This includes data like the current cipher state, their
+/// services offered, their fee filter, last message time, and more.
 #[derive(Debug)]
 pub struct ConnectionContext {
     read_ctx: ReadContext,
@@ -81,18 +87,24 @@ impl ConnectionContext {
         }
     }
 
+    /// Split the connection context into reading and writing halves. This is particularly useful
+    /// if your program is writing messages to a peer on a different task or thread than the one
+    /// receiving messages.
     pub fn into_split(self) -> (ReadContext, WriteContext) {
         (self.read_ctx, self.write_ctx)
     }
 
+    /// The number of peer-to-peer addresses gossiped by this peer during this session.
     pub fn addrs_received(&self) -> usize {
         self.read_ctx.addrs_received
     }
 
+    /// The time of the last message received.
     pub fn last_message(&self) -> Instant {
         self.read_ctx.last_message
     }
 
+    /// The minimum fee rate required to relay a transaction to this peer.
     pub fn fee_filter(&self) -> FeeRate {
         self.read_ctx.fee_filter
     }
@@ -110,6 +122,7 @@ impl AsMut<WriteContext> for ConnectionContext {
     }
 }
 
+/// The context when reading a message from this peer.
 #[derive(Debug)]
 pub struct ReadContext {
     read_half: ReadHalf,
@@ -121,14 +134,17 @@ pub struct ReadContext {
 }
 
 impl ReadContext {
+    /// The number of peer-to-peer addresses gossiped by this peer during this session.
     pub fn addrs_received(&self) -> usize {
         self.addrs_received
     }
 
+    /// The time of the last message received.
     pub fn last_message(&self) -> Instant {
         self.last_message
     }
 
+    /// The minimum fee rate required to relay a transaction to this peer.
     pub fn fee_filter(&self) -> FeeRate {
         self.fee_filter
     }
@@ -180,6 +196,11 @@ impl ReadContext {
     }
 }
 
+/// The context when writing a message to this peer. The context will reject messages that should
+/// not be sent, in particular any messages that should be exchanged during the version handshake.
+///
+/// Additional messages that may be rejected are deprecated messages, or those that the peer has
+/// not advertised support for.
 #[derive(Debug)]
 pub struct WriteContext {
     write_half: WriteHalf,
@@ -228,6 +249,10 @@ impl WriteContext {
     }
 }
 
+/// Build a connection with a bitcoin peer based on the desired preferences.
+///
+/// The state of the connection builder is defined with the latest protocol version. You must
+/// downgrade the version you will accept or your offered version with the methods on the builder.
 #[derive(Debug)]
 pub struct ConnectionBuilder {
     network: Network,
@@ -243,6 +268,7 @@ pub struct ConnectionBuilder {
 }
 
 impl ConnectionBuilder {
+    /// Start a new connection builder. Note that the default network is `Bitcoin`.
     pub fn new() -> Self {
         Self {
             network: Network::Bitcoin,
@@ -258,6 +284,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// The services you will offer the peer. The default is `ServiceFlags::NONE`.
     pub fn offered_services(self, us: ServiceFlags) -> Self {
         Self {
             offered_services: us,
@@ -265,6 +292,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// The services you expect the node to offer, for example `ServiceFlags::NETWORK`.
     pub fn their_services_expected(self, them: ServiceFlags) -> Self {
         Self {
             their_services: them,
@@ -272,6 +300,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// Downgrade your advertised version.
     pub fn downgrade_to_version(self, us: ProtocolVerison) -> Self {
         Self {
             our_version: us,
@@ -279,6 +308,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// Accept a minimum version.
     pub fn accept_minimum_version(self, them: ProtocolVerison) -> Self {
         Self {
             their_version: them,
@@ -286,6 +316,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// Advertise a starting height of your local chain.
     pub fn add_start_height(self, start_height: i32) -> Self {
         Self {
             start_height,
@@ -293,6 +324,7 @@ impl ConnectionBuilder {
         }
     }
 
+    /// Add a timeout to the initial TCP connection.
     pub fn connection_timeout(self, timeout: Duration) -> Self {
         Self {
             tcp_timeout: timeout,
@@ -300,24 +332,31 @@ impl ConnectionBuilder {
         }
     }
 
+    /// Set the user agent sent as part of your version message.
     pub fn set_user_agent(self, user_agent: String) -> Self {
         Self { user_agent, ..self }
     }
 
+    /// Change the network of preference.
     pub fn change_network(self, network: Network) -> Self {
         Self { network, ..self }
     }
 
+    /// Do not advertise support for `sendcmpct`.
     pub fn no_cmpct_blocks(mut self) -> Self {
         self.offer.cmpct_block = false;
         Self { ..self }
     }
 
+    /// Prefer that peers advertise new blocks by an `inv` message.
+    ///
+    /// Otherwise, a `headers` message will be used to share new blocks.
     pub fn announce_by_inv(mut self) -> Self {
         self.offer.send_headers = false;
         Self { ..self }
     }
 
+    /// Set the local IP address sent in your version message. The default is `0.0.0.0:0`
     pub fn set_local_ip(self, us: SocketAddr) -> Self {
         Self { our_ip: us, ..self }
     }
@@ -466,12 +505,22 @@ fn interpret_first_message(
     Ok(())
 }
 
+/// Errors when parsing a peer-to-peer message.
 #[derive(Debug)]
 pub enum ParseMessageError {
+    /// The magic received does not match our network.
     UnexpectedMagic { want: Magic, got: Magic },
-    AbsurdSize { message_size: u32 },
+    /// The reported size of the inbound message is absurdly large.
+    AbsurdSize {
+        /// The size of the message in bytes.
+        message_size: u32,
+    },
+    /// Invalid consensus encoding.
     Consensus(consensus::ParseError),
+    /// Invalid deserialization.
     Deserialize(consensus::encode::DeserializeError),
+    /// The message is malformed in some way. For example the block headers advertised do not connect to
+    /// each other.
     Malformed,
 }
 
@@ -501,13 +550,20 @@ impl std::fmt::Display for ParseMessageError {
 
 impl std::error::Error for ParseMessageError {}
 
+/// A protocol handshake error.
 #[derive(Debug, Clone)]
 pub enum HandshakeError {
+    /// Their version is too low for the configured preferences.
     TooLowVersion(ProtocolVerison),
+    /// Some message was sent before the handshake completed.
     IrrelevantMessage(NetworkMessage),
+    /// This is a connection to self.
     ConnectedToSelf,
+    /// The peer sent a decoy as the first protocol message.
     BadDecoy,
+    /// The node does not support a feature we require.
     UnsupportedFeature,
+    /// The TCP connection timed out.
     Timeout,
 }
 
