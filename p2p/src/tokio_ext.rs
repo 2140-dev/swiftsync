@@ -141,30 +141,8 @@ impl TokioTransportExt for ReadHalf {
     ) -> Result<Option<NetworkMessage>, ReadError> {
         match self {
             Self::V1(magic) => {
-                let mut message_buf = vec![0_u8; 24];
-                let _ = reader.read_exact(&mut message_buf).await?;
-                let header: crate::MessageHeader = consensus::deserialize_partial(&message_buf)
-                    .map_err(ParseMessageError::Consensus)?
-                    .0;
-                if header.magic != *magic {
-                    return Err(ParseMessageError::UnexpectedMagic {
-                        want: *magic,
-                        got: header.magic,
-                    }
-                    .into());
-                }
-                if header.length > crate::MAX_MESSAGE_SIZE {
-                    return Err(ParseMessageError::AbsurdSize {
-                        message_size: header.length,
-                    }
-                    .into());
-                }
-                let mut contents_buf = vec![0_u8; header.length as usize];
-                let _ = reader.read_exact(&mut contents_buf).await?;
-                message_buf.extend_from_slice(&contents_buf);
-                let message: RawNetworkMessage =
-                    consensus::deserialize(&message_buf).map_err(ParseMessageError::Deserialize)?;
-                Ok(Some(message.into_payload()))
+                use crate::async_awaiter;
+                crate::read_message_async!(reader, *magic)
             }
         }
     }

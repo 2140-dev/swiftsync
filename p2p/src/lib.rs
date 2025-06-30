@@ -519,3 +519,69 @@ impl std::fmt::Display for HandshakeError {
 }
 
 impl std::error::Error for HandshakeError {}
+
+#[macro_export]
+macro_rules! define_read_message_logic {
+    ($awaiter:ident, $reader:expr, $magic:expr) => {{
+        macro_rules! read_await {
+            ($buffer:expr) => {
+                $awaiter!($reader.read_exact($buffer))
+            };
+        }
+
+        let mut message_buf = vec![0_u8; 24];
+        read_await!(&mut message_buf)?;
+        let header: $crate::MessageHeader = consensus::deserialize_partial(&message_buf)
+            .map_err(ParseMessageError::Consensus)?
+            .0;
+        if header.magic != $magic {
+            return Err($crate::ParseMessageError::UnexpectedMagic {
+                want: header.magic,
+                got: header.magic,
+            }
+            .into());
+        }
+        if header.length > $crate::MAX_MESSAGE_SIZE {
+            return Err(ParseMessageError::AbsurdSize {
+                message_size: header.length,
+            }
+            .into());
+        }
+        let mut contents_buf = vec![0_u8; header.length as usize];
+        read_await!(&mut contents_buf)?;
+        message_buf.extend_from_slice(&contents_buf);
+        let message: RawNetworkMessage =
+            consensus::deserialize(&message_buf).map_err(ParseMessageError::Deserialize)?;
+        Ok(Some(message.into_payload()))
+    }};
+}
+
+macro_rules! async_awaiter {
+    ($e:expr) => {
+        $e.await
+    };
+}
+
+macro_rules! blocking_awaiter {
+    ($e:expr) => {
+        $e
+    };
+}
+
+// The public-facing macros that users will call.
+macro_rules! read_message_async {
+    ($reader:expr, $magic:expr) => {
+        $crate::define_read_message_logic!(async_awaiter, $reader, $magic)
+    };
+}
+
+macro_rules! read_message_blocking {
+    ($reader:expr) => {
+        $crate::define_read_message_logic!(blocking_awaiter, $reader)
+    };
+}
+
+pub(crate) use async_awaiter;
+pub(crate) use blocking_awaiter;
+pub(crate) use read_message_async;
+pub(crate) use read_message_blocking;
