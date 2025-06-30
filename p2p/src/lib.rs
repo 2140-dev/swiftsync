@@ -16,6 +16,8 @@ use validation::ValidationExt;
 /// Extension traits for use with the `tokio` asynchronous runtime framework.
 #[cfg(feature = "tokio")]
 pub mod tokio_ext;
+/// Extension traits for `std` networking tools.
+pub mod net;
 
 mod validation;
 
@@ -645,8 +647,8 @@ macro_rules! read_message_async {
 }
 
 macro_rules! read_message_blocking {
-    ($reader:expr) => {
-        $crate::define_read_message_logic!(blocking_awaiter, $reader)
+    ($reader:expr, $magic:expr) => {
+        $crate::define_read_message_logic!(blocking_awaiter, $reader, $magic)
     };
 }
 

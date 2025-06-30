@@ -322,7 +322,7 @@ pub enum ReadError {
     NonsenseMessage(NetworkMessage),
     /// Parsing a message failed.
     ParseMessageError(ParseMessageError),
-    /// The stream was closed or reset.
+    /// The stream was closed.
     Io(io::Error),
 }
 
