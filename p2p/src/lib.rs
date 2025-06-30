@@ -11,6 +11,7 @@ use bitcoin::{
         message_network::VersionMessage,
     },
 };
+use validation::ValidationExt;
 
 #[cfg(feature = "tokio")]
 pub mod tokio_ext;
@@ -52,32 +53,78 @@ impl ProtocolVerison {
 
 #[derive(Debug)]
 pub struct ConnectionContext {
-    transport: Transport,
-    negotiation: Negotiation,
-    offered: Offered,
-    their_services: ServiceFlags,
-    fee_filter: FeeRate,
-    final_alert: bool,
-    last_message: Instant,
-    total_addrs: usize,
+    read_ctx: ReadContext,
+    write_ctx: WriteContext,
 }
 
 impl ConnectionContext {
-    fn new(transport: Transport, negotiation: Negotiation, offered: Offered, their_services: ServiceFlags) -> Self {
-        Self {
-            transport,
+    fn new(
+        write_half: WriteHalf,
+        read_half: ReadHalf,
+        negotiation: Negotiation,
+        their_services: ServiceFlags,
+    ) -> Self {
+        let read_ctx = ReadContext {
+            read_half,
             negotiation,
-            offered,
-            their_services,
             fee_filter: FeeRate::BROADCAST_MIN,
-            final_alert: false,
             last_message: Instant::now(),
-            total_addrs: 0,
+            final_alert: false,
+            addrs_received: 0,
+        };
+        let write_ctx = WriteContext {
+            write_half,
+            negotiation,
+            their_services,
+        };
+        Self {
+            read_ctx,
+            write_ctx,
         }
     }
 
+    pub fn into_split(self) -> (ReadContext, WriteContext) {
+        (self.read_ctx, self.write_ctx)
+    }
+
     pub fn addrs_received(&self) -> usize {
-        self.total_addrs
+        self.read_ctx.addrs_received
+    }
+
+    pub fn last_message(&self) -> Instant {
+        self.read_ctx.last_message
+    }
+
+    pub fn fee_filter(&self) -> FeeRate {
+        self.read_ctx.fee_filter
+    }
+}
+
+impl AsMut<ReadContext> for ConnectionContext {
+    fn as_mut(&mut self) -> &mut ReadContext {
+        &mut self.read_ctx
+    }
+}
+
+impl AsMut<WriteContext> for ConnectionContext {
+    fn as_mut(&mut self) -> &mut WriteContext {
+        &mut self.write_ctx
+    }
+}
+
+#[derive(Debug)]
+pub struct ReadContext {
+    read_half: ReadHalf,
+    negotiation: Negotiation,
+    fee_filter: FeeRate,
+    final_alert: bool,
+    last_message: Instant,
+    addrs_received: usize,
+}
+
+impl ReadContext {
+    pub fn addrs_received(&self) -> usize {
+        self.addrs_received
     }
 
     pub fn last_message(&self) -> Instant {
@@ -86,6 +133,100 @@ impl ConnectionContext {
 
     pub fn fee_filter(&self) -> FeeRate {
         self.fee_filter
+    }
+
+    fn ok_to_recv_message(&mut self, message: &NetworkMessage) -> bool {
+        if matches!(
+            message,
+            NetworkMessage::FilterClear
+                | NetworkMessage::FilterAdd(_)
+                | NetworkMessage::FilterLoad(_)
+                | NetworkMessage::WtxidRelay
+                | NetworkMessage::SendAddrV2
+                | NetworkMessage::MemPool
+                | NetworkMessage::Verack
+                | NetworkMessage::Version(_)
+        ) {
+            return false;
+        }
+        if matches!(message, NetworkMessage::Alert(_)) {
+            if !self.final_alert {
+                self.final_alert = true;
+            } else {
+                return false;
+            }
+        }
+        if matches!(message, NetworkMessage::SendHeaders) {
+            // No check for duplicate `sendheaders` for now
+            self.negotiation.send_headers.them = true;
+        }
+        true
+    }
+
+    fn is_valid(&mut self, message: &NetworkMessage) -> bool {
+        match &message {
+            NetworkMessage::FeeFilter(f) => {
+                if *f < 0 {
+                    false
+                } else {
+                    let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
+                    self.fee_filter = fee_rate;
+                    true
+                }
+            }
+            NetworkMessage::Headers(h) => h.is_valid(),
+            NetworkMessage::GetData(r) => r.0.is_valid(),
+            NetworkMessage::Inv(r) => r.0.is_valid(),
+            _ => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct WriteContext {
+    write_half: WriteHalf,
+    negotiation: Negotiation,
+    their_services: ServiceFlags,
+}
+
+impl WriteContext {
+    fn ok_to_send(&self, message: &NetworkMessage) -> bool {
+        if matches!(
+            message,
+            NetworkMessage::FilterClear
+                | NetworkMessage::FilterAdd(_)
+                | NetworkMessage::FilterLoad(_)
+                | NetworkMessage::Alert(_)
+                | NetworkMessage::WtxidRelay
+                | NetworkMessage::SendAddrV2
+                | NetworkMessage::SendCmpct(_)
+                | NetworkMessage::SendHeaders
+                | NetworkMessage::MemPool
+                | NetworkMessage::Verack
+                | NetworkMessage::Version(_)
+        ) {
+            return false;
+        }
+        if matches!(message, NetworkMessage::Addr(_)) && self.negotiation.addrv2.agree() {
+            return false;
+        }
+        if matches!(
+            message,
+            NetworkMessage::BlockTxn(_) | NetworkMessage::CmpctBlock(_)
+        ) && !self.negotiation.cmpct_block.agree()
+        {
+            return false;
+        }
+        if matches!(
+            message,
+            NetworkMessage::GetCFilters(_)
+                | NetworkMessage::GetCFCheckpt(_)
+                | NetworkMessage::GetCFHeaders(_)
+        ) && !self.their_services.has(ServiceFlags::COMPACT_FILTERS)
+        {
+            return false;
+        }
+        true
     }
 }
 
@@ -193,11 +334,11 @@ impl Default for ConnectionBuilder {
 }
 
 #[derive(Debug)]
-enum Transport {
+enum WriteHalf {
     V1(Magic),
 }
 
-impl Transport {
+impl WriteHalf {
     fn serialize_message(&mut self, message: NetworkMessage) -> Vec<u8> {
         match self {
             Self::V1(magic) => {
@@ -208,12 +349,29 @@ impl Transport {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
+enum ReadHalf {
+    V1(Magic),
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 struct Negotiation {
-    wtxid_relay: bool,
-    addrv2: bool,
-    cmpct_block: bool,
-    send_headers: bool,
+    wtxid_relay: TwoParty,
+    addrv2: TwoParty,
+    cmpct_block: TwoParty,
+    send_headers: TwoParty,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TwoParty {
+    us: bool,
+    them: bool,
+}
+
+impl TwoParty {
+    fn agree(&self) -> bool {
+        self.us && self.them
+    }
 }
 
 #[derive(Debug)]
