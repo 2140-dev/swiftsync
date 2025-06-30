@@ -1,6 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use bitcoin::{
@@ -239,6 +239,7 @@ pub struct ConnectionBuilder {
     offer: Offered,
     start_height: i32,
     user_agent: String,
+    tcp_timeout: Duration,
 }
 
 impl ConnectionBuilder {
@@ -253,6 +254,7 @@ impl ConnectionBuilder {
             offer: Offered::default(),
             start_height: 0,
             user_agent: DEFAULT_USER_AGENT.to_string(),
+            tcp_timeout: Duration::from_secs(2),
         }
     }
 
@@ -287,6 +289,13 @@ impl ConnectionBuilder {
     pub fn add_start_height(self, start_height: i32) -> Self {
         Self {
             start_height,
+            ..self
+        }
+    }
+
+    pub fn connection_timeout(self, timeout: Duration) -> Self {
+        Self {
+            tcp_timeout: timeout,
             ..self
         }
     }
@@ -463,6 +472,7 @@ pub enum ParseMessageError {
     AbsurdSize { message_size: u32 },
     Consensus(consensus::ParseError),
     Deserialize(consensus::encode::DeserializeError),
+    Malformed,
 }
 
 impl From<consensus::ParseError> for ParseMessageError {
@@ -484,6 +494,7 @@ impl std::fmt::Display for ParseMessageError {
             Self::Consensus(c) => write!(f, "{c}"),
             Self::AbsurdSize { message_size } => write!(f, "absurd message size: {message_size}"),
             Self::UnexpectedMagic { want, got } => write!(f, "expected magic: {want}, got: {got}"),
+            Self::Malformed => write!(f, "malformed message"),
         }
     }
 }
@@ -497,11 +508,13 @@ pub enum HandshakeError {
     ConnectedToSelf,
     BadDecoy,
     UnsupportedFeature,
+    Timeout,
 }
 
 impl std::fmt::Display for HandshakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Timeout => write!(f, "connection timeout"),
             Self::IrrelevantMessage(m) => {
                 write!(f, "unexpected message during handshake: {}", m.cmd())
             }

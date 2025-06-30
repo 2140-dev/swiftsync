@@ -35,7 +35,9 @@ impl TokioConnectionExt for ConnectionBuilder {
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         let socket_addr = to.into();
-        let mut tcp_stream = TcpStream::connect(socket_addr).await?;
+        let timeout = tokio::time::timeout(self.tcp_timeout, TcpStream::connect(socket_addr)).await;
+        let mut tcp_stream =
+            timeout.map_err(|_| TokioConnectionError::Protocol(HandshakeError::Timeout))??;
         // Make a V2 connection here
         let mut negotiation = Negotiation::default();
         let magic = Magic::from_params(self.network);
@@ -211,7 +213,7 @@ impl TokioReadNetworkMessageExt for TcpStream {
                     return Err(ReadError::NonsenseMessage(message));
                 }
                 if !ctx.is_valid(&message) {
-                    return Err(ReadError::MessageMalformed);
+                    return Err(ReadError::ParseMessageError(ParseMessageError::Malformed));
                 }
                 Ok(Some(message))
             }
@@ -233,7 +235,7 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
                     return Err(ReadError::NonsenseMessage(message));
                 }
                 if !ctx.is_valid(&message) {
-                    return Err(ReadError::MessageMalformed);
+                    return Err(ReadError::ParseMessageError(ParseMessageError::Malformed));
                 }
                 Ok(Some(message))
             }
@@ -300,14 +302,12 @@ pub enum ReadError {
     NonsenseMessage(NetworkMessage),
     ParseMessageError(ParseMessageError),
     Io(io::Error),
-    MessageMalformed,
 }
 
 impl Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ParseMessageError(r) => write!(f, "{r}"),
-            Self::MessageMalformed => write!(f, "message data is malformed"),
             Self::Io(io) => write!(f, "{io}"),
             Self::NonsenseMessage(n) => write!(f, "{}", n.cmd()),
         }
