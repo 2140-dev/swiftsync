@@ -26,7 +26,10 @@ pub trait ConnectionExt {
 
     /// Start a handshake with a pre-existing connection. Normally used after establishing a Socks5
     /// proxy connection.
-    fn start_handshake(self, tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), ConnectionError>;
+    fn start_handshake(
+        self,
+        tcp_stream: TcpStream,
+    ) -> Result<(TcpStream, ConnectionContext), ConnectionError>;
 }
 
 impl ConnectionExt for ConnectionBuilder {
@@ -40,7 +43,10 @@ impl ConnectionExt for ConnectionBuilder {
         version_handshake_blocking!(tcp_stream, self)
     }
 
-    fn start_handshake(self, mut tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), ConnectionError> {
+    fn start_handshake(
+        self,
+        mut tcp_stream: TcpStream,
+    ) -> Result<(TcpStream, ConnectionContext), ConnectionError> {
         version_handshake_blocking!(tcp_stream, self)
     }
 }
@@ -160,6 +166,18 @@ impl From<HandshakeError> for ConnectionError {
         Self::Protocol(value)
     }
 }
+
+impl std::fmt::Display for ConnectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Protocol(p) => write!(f, "{p}"),
+            Self::Io(io) => write!(f, "{io}"),
+            Self::Reader(r) => write!(f, "{r}"),
+        }
+    }
+}
+
+impl std::error::Error for ConnectionError {}
 
 pub enum WriteError {
     Io(io::Error),
