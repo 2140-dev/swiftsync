@@ -14,7 +14,8 @@ use tokio::{
 
 use crate::{
     ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
-    ReadContext, ReadHalf, WriteContext, WriteHalf, interpret_first_message, make_version,
+    ReadContext, ReadHalf, WriteContext, WriteHalf, async_awaiter, interpret_first_message,
+    make_version, version_handshake_async,
 };
 
 /// Connect to peers using `tokio`.
@@ -30,7 +31,7 @@ pub trait TokioConnectionExt {
 }
 
 impl TokioConnectionExt for ConnectionBuilder {
-    type Error = TokioConnectionError;
+    type Error = ConnectionError;
 
     async fn open_connection(
         self,
@@ -39,58 +40,8 @@ impl TokioConnectionExt for ConnectionBuilder {
         let socket_addr = to.into();
         let timeout = tokio::time::timeout(self.tcp_timeout, TcpStream::connect(socket_addr)).await;
         let mut tcp_stream =
-            timeout.map_err(|_| TokioConnectionError::Protocol(HandshakeError::Timeout))??;
-        // Make a V2 connection here
-        let mut negotiation = Negotiation::default();
-        let magic = Magic::from_params(self.network);
-        let mut write_half = WriteHalf::V1(magic);
-        let mut read_half = ReadHalf::V1(magic);
-        let nonce = rand::random();
-        let version = NetworkMessage::Version(make_version(
-            self.our_version,
-            self.offered_services,
-            self.their_services,
-            self.our_ip,
-            self.start_height,
-            self.user_agent,
-            nonce,
-        ));
-        write_message(&mut tcp_stream, version, &mut write_half).await?;
-        let their_version = read_half.read_message(&mut tcp_stream).await?;
-        match their_version {
-            Some(version) => {
-                interpret_first_message(version, nonce, self.their_version, self.their_services)
-                    .map_err(TokioConnectionError::Protocol)?;
-            }
-            None => return Err(TokioConnectionError::Protocol(HandshakeError::BadDecoy)),
-        };
-        // Send the services we offer
-        if self.offer.addrv2 {
-            write_message(&mut tcp_stream, NetworkMessage::SendAddrV2, &mut write_half).await?;
-        }
-        if self.offer.wtxid_relay {
-            write_message(&mut tcp_stream, NetworkMessage::WtxidRelay, &mut write_half).await?;
-        }
-        negotiate_handshake(&mut tcp_stream, &mut read_half, &mut negotiation).await?;
-        write_message(&mut tcp_stream, NetworkMessage::Verack, &mut write_half).await?;
-        if self.offer.cmpct_block {
-            let send_cmpct = NetworkMessage::SendCmpct(SendCmpct {
-                send_compact: self.offer.cmpct_block,
-                version: 0x02,
-            });
-            write_message(&mut tcp_stream, send_cmpct, &mut write_half).await?;
-        }
-        if self.offer.send_headers {
-            write_message(
-                &mut tcp_stream,
-                NetworkMessage::SendHeaders,
-                &mut write_half,
-            )
-            .await?;
-        }
-        let context =
-            ConnectionContext::new(write_half, read_half, negotiation, self.their_services);
-        Ok((tcp_stream, context))
+            timeout.map_err(|_| ConnectionError::Protocol(HandshakeError::Timeout))??;
+        version_handshake_async!(tcp_stream, self)
     }
 }
 
@@ -103,31 +54,6 @@ async fn write_message<W: AsyncWriteExt + Send + Sync + Unpin>(
     write.write_all(&msg_bytes).await?;
     write.flush().await?;
     Ok(())
-}
-
-async fn negotiate_handshake(
-    tcp_stream: &mut TcpStream,
-    transport: &mut ReadHalf,
-    negotiation: &mut Negotiation,
-) -> Result<(), TokioConnectionError> {
-    loop {
-        let message = transport.read_message(tcp_stream).await?;
-        match message {
-            Some(message) => match message {
-                NetworkMessage::SendAddrV2 => negotiation.addrv2.them = true,
-                NetworkMessage::WtxidRelay => negotiation.wtxid_relay.them = true,
-                NetworkMessage::SendCmpct(_) => negotiation.cmpct_block.them = true,
-                NetworkMessage::SendHeaders => negotiation.send_headers.them = true,
-                NetworkMessage::Verack => return Ok(()),
-                other => {
-                    return Err(TokioConnectionError::Protocol(
-                        HandshakeError::IrrelevantMessage(other),
-                    ));
-                }
-            },
-            None => return Err(TokioConnectionError::Protocol(HandshakeError::BadDecoy)),
-        }
-    }
 }
 
 trait TokioTransportExt {
@@ -145,7 +71,6 @@ impl TokioTransportExt for ReadHalf {
     ) -> Result<Option<NetworkMessage>, ReadError> {
         match self {
             Self::V1(magic) => {
-                use crate::async_awaiter;
                 crate::read_message_async!(reader, *magic)
             }
         }
@@ -259,28 +184,28 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
 
 /// Errors that may occur when starting a connection.
 #[derive(Debug)]
-pub enum TokioConnectionError {
+pub enum ConnectionError {
     /// Read or write failure.
     Io(io::Error),
-    /// The handshake failed to malformed messages or a mis-match in preferences.
+    /// The handshake failed to malformed messages or a mismatch in preferences.
     Protocol(HandshakeError),
     /// A message that was read violated the protocol.
     Reader(ReadError),
 }
 
-impl From<io::Error> for TokioConnectionError {
+impl From<io::Error> for ConnectionError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
     }
 }
 
-impl From<ReadError> for TokioConnectionError {
+impl From<ReadError> for ConnectionError {
     fn from(value: ReadError) -> Self {
         Self::Reader(value)
     }
 }
 
-impl Display for TokioConnectionError {
+impl Display for ConnectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(io) => write!(f, "{io}"),
@@ -290,7 +215,7 @@ impl Display for TokioConnectionError {
     }
 }
 
-impl std::error::Error for TokioConnectionError {}
+impl std::error::Error for ConnectionError {}
 
 /// Errors when attempting to write a message.
 #[derive(Debug)]

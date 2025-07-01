@@ -10,7 +10,9 @@ use bitcoin::secp256k1::rand;
 use bitcoin::{consensus, p2p::message_compact_blocks::SendCmpct};
 
 use crate::{
-    interpret_first_message, make_version, ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError, ReadContext, ReadHalf, WriteContext, WriteHalf
+    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
+    ReadContext, ReadHalf, WriteContext, WriteHalf, blocking_awaiter, interpret_first_message,
+    make_version, version_handshake_blocking,
 };
 
 /// Open a connection to a potential peer.
@@ -30,76 +32,7 @@ impl ConnectionExt for ConnectionBuilder {
         let socket_addr = to.into();
         let mut tcp_stream = TcpStream::connect_timeout(&socket_addr, self.tcp_timeout)?;
         // Make V2 connection
-        let mut negotiation = Negotiation::default();
-        let magic = Magic::from_params(self.network);
-        let mut write_half = WriteHalf::V1(magic);
-        let mut read_half = ReadHalf::V1(magic);
-        let nonce = rand::random();
-        let version = NetworkMessage::Version(make_version(
-            self.our_version,
-            self.offered_services,
-            self.their_services,
-            self.our_ip,
-            self.start_height,
-            self.user_agent,
-            nonce,
-        ));
-        write_message(&mut tcp_stream, version, &mut write_half)?;
-        let version = read_half.read_message(&mut tcp_stream)?;
-        match version {
-            Some(version) => {
-                interpret_first_message(version, nonce, self.their_version, self.their_services)
-                    .map_err(ConnectionError::Protocol)?;
-            }
-            None => {
-                return Err(ConnectionError::Protocol(HandshakeError::BadDecoy));
-            }
-        }
-        if self.offer.addrv2 {
-            write_message(&mut tcp_stream, NetworkMessage::SendAddrV2, &mut write_half)?;
-        }
-        if self.offer.wtxid_relay {
-            write_message(&mut tcp_stream, NetworkMessage::WtxidRelay, &mut write_half)?;
-        }
-        loop {
-            let message = read_half.read_message(&mut tcp_stream)?;
-            match message {
-                Some(message) => match message {
-                    NetworkMessage::Verack => break,
-                    NetworkMessage::WtxidRelay => negotiation.wtxid_relay.them = true,
-                    NetworkMessage::SendHeaders => negotiation.send_headers.them = true,
-                    NetworkMessage::SendAddrV2 => negotiation.addrv2.them = true,
-                    NetworkMessage::SendCmpct(_) => negotiation.cmpct_block.them = true,
-                    other => {
-                        return Err(ConnectionError::Protocol(
-                            HandshakeError::IrrelevantMessage(other),
-                        ));
-                    }
-                },
-                None => continue,
-            }
-        }
-        write_message(&mut tcp_stream, NetworkMessage::Verack, &mut write_half)?;
-        if self.offer.cmpct_block {
-            write_message(
-                &mut tcp_stream,
-                NetworkMessage::SendCmpct(SendCmpct {
-                    version: 0x02,
-                    send_compact: true,
-                }),
-                &mut write_half,
-            )?;
-        }
-        if self.offer.send_headers {
-            write_message(
-                &mut tcp_stream,
-                NetworkMessage::SendHeaders,
-                &mut write_half,
-            )?;
-        }
-        let context =
-            ConnectionContext::new(write_half, read_half, negotiation, self.their_services);
-        Ok((tcp_stream, context))
+        version_handshake_blocking!(tcp_stream, self)
     }
 }
 
@@ -118,7 +51,6 @@ impl ReadHalfExt for ReadHalf {
     ) -> Result<Option<NetworkMessage>, ReadError> {
         match self {
             Self::V1(magic) => {
-                use crate::blocking_awaiter;
                 crate::read_message_blocking!(reader, *magic)
             }
         }
@@ -163,11 +95,17 @@ fn write_message<W: Write + Send + Sync>(
 /// Read a message directly off of the stream.
 pub trait ReadExt {
     #[allow(clippy::result_large_err)]
-    fn read_message(&mut self, ctx: impl AsMut<ReadContext>) -> Result<Option<NetworkMessage>, ReadError>;
+    fn read_message(
+        &mut self,
+        ctx: impl AsMut<ReadContext>,
+    ) -> Result<Option<NetworkMessage>, ReadError>;
 }
 
 impl ReadExt for TcpStream {
-    fn read_message(&mut self, mut ctx: impl AsMut<ReadContext>) -> Result<Option<NetworkMessage>, ReadError> {
+    fn read_message(
+        &mut self,
+        mut ctx: impl AsMut<ReadContext>,
+    ) -> Result<Option<NetworkMessage>, ReadError> {
         let ctx = ctx.as_mut();
         let message = ctx.read_half.read_message(self)?;
         match message {

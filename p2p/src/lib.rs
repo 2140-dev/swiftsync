@@ -595,14 +595,14 @@ impl std::error::Error for HandshakeError {}
 #[macro_export]
 macro_rules! define_read_message_logic {
     ($awaiter:ident, $reader:expr, $magic:expr) => {{
-        macro_rules! read_await {
+        macro_rules! read {
             ($buffer:expr) => {
                 $awaiter!($reader.read_exact($buffer))
             };
         }
 
         let mut message_buf = vec![0_u8; 24];
-        read_await!(&mut message_buf)?;
+        read!(&mut message_buf)?;
         let header: $crate::MessageHeader = consensus::deserialize_partial(&message_buf)
             .map_err(ParseMessageError::Consensus)?
             .0;
@@ -620,11 +620,105 @@ macro_rules! define_read_message_logic {
             .into());
         }
         let mut contents_buf = vec![0_u8; header.length as usize];
-        read_await!(&mut contents_buf)?;
+        read!(&mut contents_buf)?;
         message_buf.extend_from_slice(&contents_buf);
         let message: RawNetworkMessage =
             consensus::deserialize(&message_buf).map_err(ParseMessageError::Deserialize)?;
         Ok(Some(message.into_payload()))
+    }};
+}
+
+#[macro_export]
+macro_rules! define_version_message_logic {
+    ($awaiter:ident, $reader:expr, $conn:expr) => {{
+        macro_rules! write_message {
+            ($line:expr) => {
+                $awaiter!($line)
+            };
+        }
+
+        let mut negotiation = Negotiation::default();
+        let magic = Magic::from_params($conn.network);
+        let mut write_half = WriteHalf::V1(magic);
+        let mut read_half = ReadHalf::V1(magic);
+        let nonce = rand::random();
+        let version = NetworkMessage::Version(make_version(
+            $conn.our_version,
+            $conn.offered_services,
+            $conn.their_services,
+            $conn.our_ip,
+            $conn.start_height,
+            $conn.user_agent,
+            nonce,
+        ));
+        write_message!(write_message(&mut $reader, version, &mut write_half))?;
+        let version = $awaiter!(read_half.read_message(&mut $reader))?;
+        match version {
+            Some(version) => {
+                interpret_first_message(version, nonce, $conn.their_version, $conn.their_services)
+                    .map_err(ConnectionError::Protocol)?;
+            }
+            None => {
+                return Err(ConnectionError::Protocol(HandshakeError::BadDecoy));
+            }
+        }
+        if $conn.offer.addrv2 {
+            write_message!(write_message(
+                &mut $reader,
+                NetworkMessage::SendAddrV2,
+                &mut write_half
+            ))?;
+        }
+        if $conn.offer.wtxid_relay {
+            write_message!(write_message(
+                &mut $reader,
+                NetworkMessage::WtxidRelay,
+                &mut write_half
+            ))?;
+        }
+        loop {
+            let message = $awaiter!(read_half.read_message(&mut $reader))?;
+            match message {
+                Some(message) => match message {
+                    NetworkMessage::Verack => break,
+                    NetworkMessage::WtxidRelay => negotiation.wtxid_relay.them = true,
+                    NetworkMessage::SendHeaders => negotiation.send_headers.them = true,
+                    NetworkMessage::SendAddrV2 => negotiation.addrv2.them = true,
+                    NetworkMessage::SendCmpct(_) => negotiation.cmpct_block.them = true,
+                    other => {
+                        return Err(ConnectionError::Protocol(
+                            HandshakeError::IrrelevantMessage(other),
+                        ));
+                    }
+                },
+                None => continue,
+            }
+        }
+        write_message!(write_message(
+            &mut $reader,
+            NetworkMessage::Verack,
+            &mut write_half
+        ))?;
+        if $conn.offer.cmpct_block {
+            write_message!(write_message(
+                &mut $reader,
+                NetworkMessage::SendCmpct(SendCmpct {
+                    version: 0x02,
+                    send_compact: true,
+                }),
+                &mut write_half,
+            ))?;
+        }
+        if $conn.offer.send_headers {
+            write_message!(write_message(
+                &mut $reader,
+                NetworkMessage::SendHeaders,
+                &mut write_half,
+            ))?;
+        }
+        let context =
+            ConnectionContext::new(write_half, read_half, negotiation, $conn.their_services);
+        Ok(($reader, context))
     }};
 }
 
@@ -640,7 +734,6 @@ macro_rules! blocking_awaiter {
     };
 }
 
-// The public-facing macros that users will call.
 macro_rules! read_message_async {
     ($reader:expr, $magic:expr) => {
         $crate::define_read_message_logic!(async_awaiter, $reader, $magic)
@@ -653,7 +746,21 @@ macro_rules! read_message_blocking {
     };
 }
 
+macro_rules! version_handshake_blocking {
+    ($reader:expr, $conn:ident) => {
+        $crate::define_version_message_logic!(blocking_awaiter, $reader, $conn)
+    };
+}
+
+macro_rules! version_handshake_async {
+    ($reader:expr, $conn:ident) => {
+        $crate::define_version_message_logic!(async_awaiter, $reader, $conn)
+    };
+}
+
 pub(crate) use async_awaiter;
 pub(crate) use blocking_awaiter;
 pub(crate) use read_message_async;
 pub(crate) use read_message_blocking;
+pub(crate) use version_handshake_async;
+pub(crate) use version_handshake_blocking;
