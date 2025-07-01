@@ -28,6 +28,11 @@ pub trait TokioConnectionExt {
         self,
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error>;
+
+    /// Start a handshake with a pre-existing connection. Normally used after establishing a Socks5
+    /// proxy connection.
+    #[allow(async_fn_in_trait)]
+    async fn start_handshake(self, tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), Self::Error>;
 }
 
 impl TokioConnectionExt for ConnectionBuilder {
@@ -41,6 +46,10 @@ impl TokioConnectionExt for ConnectionBuilder {
         let timeout = tokio::time::timeout(self.tcp_timeout, TcpStream::connect(socket_addr)).await;
         let mut tcp_stream =
             timeout.map_err(|_| ConnectionError::Protocol(HandshakeError::Timeout))??;
+        version_handshake_async!(tcp_stream, self)
+    }
+
+    async fn start_handshake(self, mut tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         version_handshake_async!(tcp_stream, self)
     }
 }

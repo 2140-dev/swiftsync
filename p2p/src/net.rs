@@ -16,12 +16,17 @@ use crate::{
 };
 
 /// Open a connection to a potential peer.
+#[allow(clippy::result_large_err)]
 pub trait ConnectionExt {
-    #[allow(clippy::result_large_err)]
+    /// Create a connection to the socket address
     fn open_connection(
         self,
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), ConnectionError>;
+
+    /// Start a handshake with a pre-existing connection. Normally used after establishing a Socks5
+    /// proxy connection.
+    fn start_handshake(self, tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), ConnectionError>;
 }
 
 impl ConnectionExt for ConnectionBuilder {
@@ -32,6 +37,10 @@ impl ConnectionExt for ConnectionBuilder {
         let socket_addr = to.into();
         let mut tcp_stream = TcpStream::connect_timeout(&socket_addr, self.tcp_timeout)?;
         // Make V2 connection
+        version_handshake_blocking!(tcp_stream, self)
+    }
+
+    fn start_handshake(self, mut tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), ConnectionError> {
         version_handshake_blocking!(tcp_stream, self)
     }
 }
