@@ -47,6 +47,9 @@ pub fn get_block_hashes_from_store<P: AsRef<Path>>(
     while let Some(row) = rows.next().unwrap() {
         let height: u32 = row.get(0).unwrap();
         let hash: [u8; 32] = row.get(1).unwrap();
+        if height == 0 {
+            continue;
+        }
         let block_hash: BlockHash = consensus::deserialize(&hash).unwrap();
         hashes.insert(height, block_hash);
         if block_hash.eq(&assume_valid) {
