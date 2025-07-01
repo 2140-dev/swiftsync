@@ -224,6 +224,7 @@ impl TokioReadNetworkMessageExt for TcpStream {
                 if !ctx.is_valid(&message) {
                     return Err(ReadError::ParseMessageError(ParseMessageError::Malformed));
                 }
+                ctx.update_metadata(&message);
                 Ok(Some(message))
             }
             None => Ok(None),
@@ -246,6 +247,7 @@ impl TokioReadNetworkMessageExt for OwnedReadHalf {
                 if !ctx.is_valid(&message) {
                     return Err(ReadError::ParseMessageError(ParseMessageError::Malformed));
                 }
+                ctx.update_metadata(&message);
                 Ok(Some(message))
             }
             None => Ok(None),

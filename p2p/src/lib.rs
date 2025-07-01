@@ -13,11 +13,11 @@ use bitcoin::{
 };
 use validation::ValidationExt;
 
+/// Extension traits for `std` networking tools.
+pub mod net;
 /// Extension traits for use with the `tokio` asynchronous runtime framework.
 #[cfg(feature = "tokio")]
 pub mod tokio_ext;
-/// Extension traits for `std` networking tools.
-pub mod net;
 
 mod validation;
 
@@ -151,7 +151,7 @@ impl ReadContext {
         self.fee_filter
     }
 
-    fn ok_to_recv_message(&mut self, message: &NetworkMessage) -> bool {
+    fn ok_to_recv_message(&self, message: &NetworkMessage) -> bool {
         if matches!(
             message,
             NetworkMessage::FilterClear
@@ -166,34 +166,35 @@ impl ReadContext {
             return false;
         }
         if matches!(message, NetworkMessage::Alert(_)) {
-            if !self.final_alert {
-                self.final_alert = true;
-            } else {
-                return false;
-            }
-        }
-        if matches!(message, NetworkMessage::SendHeaders) {
-            // No check for duplicate `sendheaders` for now
-            self.negotiation.send_headers.them = true;
+            return !self.final_alert;
         }
         true
     }
 
-    fn is_valid(&mut self, message: &NetworkMessage) -> bool {
+    fn is_valid(&self, message: &NetworkMessage) -> bool {
         match &message {
-            NetworkMessage::FeeFilter(f) => {
-                if *f < 0 {
-                    false
-                } else {
-                    let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
-                    self.fee_filter = fee_rate;
-                    true
-                }
-            }
+            NetworkMessage::FeeFilter(f) => *f > 0,
             NetworkMessage::Headers(h) => h.is_valid(),
             NetworkMessage::GetData(r) => r.0.is_valid(),
             NetworkMessage::Inv(r) => r.0.is_valid(),
             _ => true,
+        }
+    }
+
+    fn update_metadata(&mut self, message: &NetworkMessage) {
+        self.last_message = Instant::now();
+        match &message {
+            NetworkMessage::FeeFilter(f) => {
+                let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
+                self.fee_filter = fee_rate;
+            }
+            NetworkMessage::Alert(_) => self.final_alert = true,
+            NetworkMessage::SendHeaders => {
+                self.negotiation.send_headers.them = true;
+            }
+            NetworkMessage::Addr(payload) => self.addrs_received += payload.0.len(),
+            NetworkMessage::AddrV2(payload) => self.addrs_received += payload.0.len(),
+            _ => (),
         }
     }
 }

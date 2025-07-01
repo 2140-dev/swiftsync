@@ -10,8 +10,7 @@ use bitcoin::secp256k1::rand;
 use bitcoin::{consensus, p2p::message_compact_blocks::SendCmpct};
 
 use crate::{
-    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError, ReadHalf,
-    WriteContext, WriteHalf, interpret_first_message, make_version,
+    interpret_first_message, make_version, ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError, ReadContext, ReadHalf, WriteContext, WriteHalf
 };
 
 /// Open a connection to a potential peer.
@@ -159,6 +158,32 @@ fn write_message<W: Write + Send + Sync>(
     tcp_stream.write_all(&msg_bytes)?;
     tcp_stream.flush()?;
     Ok(())
+}
+
+/// Read a message directly off of the stream.
+pub trait ReadExt {
+    #[allow(clippy::result_large_err)]
+    fn read_message(&mut self, ctx: impl AsMut<ReadContext>) -> Result<Option<NetworkMessage>, ReadError>;
+}
+
+impl ReadExt for TcpStream {
+    fn read_message(&mut self, mut ctx: impl AsMut<ReadContext>) -> Result<Option<NetworkMessage>, ReadError> {
+        let ctx = ctx.as_mut();
+        let message = ctx.read_half.read_message(self)?;
+        match message {
+            Some(message) => {
+                if !ctx.ok_to_recv_message(&message) {
+                    return Err(ReadError::NonsenseMessage(message));
+                }
+                if !ctx.is_valid(&message) {
+                    return Err(ReadError::ParseMessageError(ParseMessageError::Malformed));
+                }
+                ctx.update_metadata(&message);
+                Ok(Some(message))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 // Error implementations
