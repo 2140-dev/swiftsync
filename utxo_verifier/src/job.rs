@@ -25,6 +25,7 @@ use peers::PortExt;
 use crate::{AccumulatorUpdate, NETWORK};
 
 pub fn fetch_blocks(
+    id: usize,
     sender: mpsc::Sender<Vec<AccumulatorUpdate>>,
     mut queue: Vec<Vec<BlockHash>>,
     peers: Arc<HashSet<IpAddr>>,
@@ -42,7 +43,7 @@ pub fn fetch_blocks(
         tracing::info!("Connecting to {any}");
         match connection {
             Ok((mut tcp_stream, mut ctx)) => {
-                let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(3)));
+                let _ = tcp_stream.set_read_timeout(Some(Duration::from_secs(1)));
                 let inv = InventoryPayload(batch.iter().copied().map(Inventory::Block).collect());
                 let getdata = NetworkMessage::GetData(inv);
                 if tcp_stream.write_message(getdata, &mut ctx).is_err() {
@@ -62,7 +63,9 @@ pub fn fetch_blocks(
                                             if !tx.is_coinbase() {
                                                 for input in tx.inputs() {
                                                     updates.push(AccumulatorUpdate::Spent(
-                                                        input.previous_output,
+                                                        accumulator::hash_outpoint(
+                                                            input.previous_output,
+                                                        ),
                                                     ));
                                                 }
                                             }
@@ -75,17 +78,22 @@ pub fn fetch_blocks(
                                                     txid,
                                                     vout: index as u32,
                                                 };
-                                                updates.push(AccumulatorUpdate::Created(outpoint));
+                                                let hash = accumulator::hash_outpoint(outpoint);
+                                                updates.push(AccumulatorUpdate::Created(hash));
                                             }
                                         }
                                         sender.send(updates).unwrap();
                                         let this_hash = block.block_hash();
+                                        tracing::info!("{id}:{this_hash}");
                                         batch.retain(|hash| hash.ne(&this_hash));
                                         if batch.is_empty() {
                                             match queue.pop() {
                                                 Some(next) => {
                                                     batch = next;
-                                                    tracing::info!("{any} has {} more batches", queue.len());
+                                                    tracing::info!(
+                                                        "{any} has {} more batches",
+                                                        queue.len()
+                                                    );
                                                     let inv = InventoryPayload(
                                                         batch
                                                             .iter()
@@ -158,9 +166,8 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let m = 3;
         let jobs = divide_jobs(data, m);
-        let want =  vec![1, 4, 7, 10];
+        let want = vec![1, 4, 7, 10];
         let got = jobs.first().unwrap().clone();
         assert_eq!(want, got);
     }
 }
-
