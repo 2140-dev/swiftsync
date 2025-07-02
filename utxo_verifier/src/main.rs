@@ -19,17 +19,17 @@ mod hasher;
 mod job;
 mod loader;
 
-pub const NETWORK: Network = Network::Signet;
+pub const NETWORK: Network = Network::Bitcoin;
 // Signet
-const ASSUME_VALID_HASH: &str = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c";
+// const ASSUME_VALID_HASH: &str = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c";
 // Bitcoin
-// const ASSSUME_VALID_HASH: &str = "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880";
+const ASSUME_VALID_HASH: &str = "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880";
 const WORKERS: usize = 128;
-#[allow(unused)]
-const DUP_COINBASE_ONE: &str = "e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468";
-#[allow(unused)]
-const DUP_COINBASE_TWO: &str = "d5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599";
-const REQUEST_SIZE: usize = 100;
+pub const DUP_COINBASE_ONE: &str =
+    "e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468";
+pub const DUP_COINBASE_TWO: &str =
+    "d5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599";
+const REQUEST_SIZE: usize = 1_000;
 
 fn bootstrap() -> HashSet<IpAddr> {
     let seeds = NETWORK.dns_seeds();
@@ -47,8 +47,8 @@ fn bootstrap() -> HashSet<IpAddr> {
 
 #[derive(Debug, Clone, Copy)]
 enum AccumulatorUpdate {
-    Spent(OutPoint),
-    Created(OutPoint),
+    Spent([u8; 32]),
+    Created([u8; 32]),
 }
 
 fn main() {
@@ -59,18 +59,6 @@ fn main() {
     let path = args
         .next()
         .expect("Provide a file path to the utxos.sqlite/outpoints.sqlite file");
-    // These outpoints will show up twice, but can only be spent once
-    //
-    //let coinbase_one = DUP_COINBASE_ONE.parse::<Txid>().unwrap();
-    // let coinbase_two = DUP_COINBASE_TWO.parse::<Txid>().unwrap();
-    // acc.spend(OutPoint {
-    // txid: coinbase_one,
-    //  vout: 0,
-    // });
-    // acc.spend(OutPoint {
-    // txid: coinbase_two,
-    // vout: 0,
-    // });
     tracing::info!("Fetching peers from DNS");
     let peers = Arc::new(bootstrap());
     tracing::info!("Loading OutPoint set and updating the accumulator");
@@ -85,17 +73,17 @@ fn main() {
     let (tx, rx) = channel();
     let block_handle = std::thread::spawn(move || update_accumulator_from_blocks(rx));
     let now = Instant::now();
-    tracing::info!("Spawing workers");
+    tracing::info!("Spawning workers");
     let mut handles = Vec::with_capacity(WORKERS);
     let jobs = divide_jobs(hashes, WORKERS);
-    for job in jobs {
+    for (id, job) in jobs.into_iter().enumerate() {
         let windows = job
             .chunks(REQUEST_SIZE)
             .map(|slice| slice.to_vec())
             .collect();
         let sender = tx.clone();
         let peers = Arc::clone(&peers);
-        let handle = std::thread::spawn(move || fetch_blocks(sender, windows, peers.clone()));
+        let handle = std::thread::spawn(move || fetch_blocks(id, sender, windows, peers.clone()));
         handles.push(handle);
     }
     tracing::info!("Waiting for jobs");
