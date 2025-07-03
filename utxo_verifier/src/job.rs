@@ -56,10 +56,10 @@ pub fn fetch_blocks(
                             if let Some(message) = message {
                                 match message {
                                     NetworkMessage::Block(b) => {
-                                        let block = b.assume_checked(None);
-                                        let mut updates =
-                                            Vec::with_capacity(block.transactions().len());
-                                        for tx in block.transactions() {
+                                        let this_hash = b.block_hash();
+                                        let (_, transactions) = b.into_parts();
+                                        let mut updates = Vec::with_capacity(transactions.len());
+                                        for tx in transactions {
                                             if !tx.is_coinbase() {
                                                 for input in tx.inputs() {
                                                     updates.push(AccumulatorUpdate::Spent(
@@ -83,7 +83,6 @@ pub fn fetch_blocks(
                                             }
                                         }
                                         sender.send(updates).unwrap();
-                                        let this_hash = block.block_hash();
                                         tracing::info!("{id}:{this_hash}");
                                         batch.retain(|hash| hash.ne(&this_hash));
                                         if batch.is_empty() {
