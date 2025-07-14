@@ -13,6 +13,9 @@ tokio = { version = "1", default-features = false, optional = true, features = [
 ]}
 
 [dev-dependencies]
+corepc-node = { version = "0.8.0", default-features = false, features = [
+    "29_0", "download"
+] }
 tokio = { version = "1", default-features = false, features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
