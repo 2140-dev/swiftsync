@@ -70,6 +70,7 @@ impl ConnectionContext {
         read_half: ReadHalf,
         negotiation: Negotiation,
         their_services: ServiceFlags,
+        their_version: ProtocolVerison,
     ) -> Self {
         let read_ctx = ReadContext {
             read_half,
@@ -83,6 +84,7 @@ impl ConnectionContext {
             write_half,
             negotiation,
             their_services,
+            their_protocol_verison: their_version,
         };
         Self {
             read_ctx,
@@ -210,6 +212,7 @@ pub struct WriteContext {
     write_half: WriteHalf,
     negotiation: Negotiation,
     their_services: ServiceFlags,
+    their_protocol_verison: ProtocolVerison,
 }
 
 impl WriteContext {
@@ -432,6 +435,12 @@ impl Default for Offered {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Feeler {
+    pub services: ServiceFlags,
+    pub protocol_version: ProtocolVerison,
+}
+
 pub(crate) struct MessageHeader {
     magic: Magic,
     _command: CommandString,
@@ -490,7 +499,7 @@ fn interpret_first_message(
     nonce: u64,
     their_expected_version: ProtocolVerison,
     their_expected_services: ServiceFlags,
-) -> Result<(), HandshakeError> {
+) -> Result<(ProtocolVerison, ServiceFlags), HandshakeError> {
     if let NetworkMessage::Version(version) = message {
         if version.nonce.eq(&nonce) {
             return Err(HandshakeError::ConnectedToSelf);
@@ -503,10 +512,10 @@ fn interpret_first_message(
         if !version.services.has(their_expected_services) {
             return Err(HandshakeError::UnsupportedFeature);
         }
+        Ok((ProtocolVerison(version.version), version.services))
     } else {
-        return Err(HandshakeError::IrrelevantMessage(message));
+        Err(HandshakeError::IrrelevantMessage(message))
     }
-    Ok(())
 }
 
 /// Errors when parsing a peer-to-peer message.
@@ -656,8 +665,15 @@ macro_rules! define_version_message_logic {
         let version = $awaiter!(read_half.read_message(&mut $reader))?;
         match version {
             Some(version) => {
-                interpret_first_message(version, nonce, $conn.their_version, $conn.their_services)
-                    .map_err(ConnectionError::Protocol)?;
+                let (protocol, services) = interpret_first_message(
+                    version,
+                    nonce,
+                    $conn.their_version,
+                    $conn.their_services,
+                )
+                .map_err(ConnectionError::Protocol)?;
+                $conn.their_services = services;
+                $conn.their_version = protocol;
             }
             None => {
                 return Err(ConnectionError::Protocol(HandshakeError::BadDecoy));
@@ -717,8 +733,13 @@ macro_rules! define_version_message_logic {
                 &mut write_half,
             ))?;
         }
-        let context =
-            ConnectionContext::new(write_half, read_half, negotiation, $conn.their_services);
+        let context = ConnectionContext::new(
+            write_half,
+            read_half,
+            negotiation,
+            $conn.their_services,
+            $conn.their_version,
+        );
         Ok(($reader, context))
     }};
 }

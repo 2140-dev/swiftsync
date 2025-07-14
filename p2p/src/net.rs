@@ -11,7 +11,7 @@ use bitcoin::{consensus, p2p::message_compact_blocks::SendCmpct};
 
 use crate::{
     blocking_awaiter, interpret_first_message, make_version, version_handshake_blocking,
-    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
+    ConnectionBuilder, ConnectionContext, Feeler, HandshakeError, Negotiation, ParseMessageError,
     ReadContext, ReadHalf, WriteContext, WriteHalf,
 };
 
@@ -30,11 +30,15 @@ pub trait ConnectionExt {
         self,
         tcp_stream: TcpStream,
     ) -> Result<(TcpStream, ConnectionContext), ConnectionError>;
+
+    /// Open a "feeler" connection to test if the peer is online and update their services and
+    /// protocol version.
+    fn open_feeler(self, to: impl Into<SocketAddr>) -> Result<Feeler, ConnectionError>;
 }
 
 impl ConnectionExt for ConnectionBuilder {
     fn open_connection(
-        self,
+        mut self,
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), ConnectionError> {
         let socket_addr = to.into();
@@ -44,10 +48,25 @@ impl ConnectionExt for ConnectionBuilder {
     }
 
     fn start_handshake(
-        self,
+        mut self,
         mut tcp_stream: TcpStream,
     ) -> Result<(TcpStream, ConnectionContext), ConnectionError> {
         version_handshake_blocking!(tcp_stream, self)
+    }
+
+    fn open_feeler(mut self, to: impl Into<SocketAddr>) -> Result<Feeler, ConnectionError> {
+        let socket_addr = to.into();
+        let mut tcp_stream = TcpStream::connect_timeout(&socket_addr, self.tcp_timeout)?;
+        let res: Result<(TcpStream, ConnectionContext), ConnectionError> =
+            version_handshake_blocking!(tcp_stream, self);
+        let (_, ctx) = res?;
+        let (_, wtx) = ctx.into_split();
+        let services = wtx.their_services;
+        let protocol_version = wtx.their_protocol_verison;
+        Ok(Feeler {
+            services,
+            protocol_version,
+        })
     }
 }
 
