@@ -4,7 +4,7 @@ use accumulator::Accumulator;
 use bitcoin::{OutPoint, Txid};
 use std::collections::BTreeMap;
 
-use bitcoin::{consensus, BlockHash};
+use bitcoin::{BlockHash, consensus};
 use rusqlite::Connection;
 
 const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";

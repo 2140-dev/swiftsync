@@ -53,7 +53,10 @@ impl SeedsExt for Network {
                 "dnsseed.emzy.de",
                 "seed.bitcoin.wiz.biz",
             ],
-            Self::Signet => vec!["seed.signet.bitcoin.sprovoost.nl", "seed.signet.achownodes.xyz"],
+            Self::Signet => vec![
+                "seed.signet.bitcoin.sprovoost.nl",
+                "seed.signet.achownodes.xyz",
+            ],
             _ => unimplemented!(),
         }
     }

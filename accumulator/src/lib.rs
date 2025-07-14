@@ -234,7 +234,7 @@ mod tests {
         acc.add_hashed_outpoint(hash_four);
         acc.add_hashed_outpoint(hash_one);
         acc.add_hashed_outpoint(hash_two);
-        acc.add_hashed_outpoint(hash_three);        
+        acc.add_hashed_outpoint(hash_three);
         acc.spend_hashed_outpoint(hash_five);
         acc.spend_hashed_outpoint(hash_four);
         acc.spend_hashed_outpoint(hash_one);
