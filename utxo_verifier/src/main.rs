@@ -19,12 +19,12 @@ mod hasher;
 mod job;
 mod loader;
 
-pub const NETWORK: Network = Network::Bitcoin;
+pub const NETWORK: Network = Network::Signet;
 // Signet
-// const ASSUME_VALID_HASH: &str = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c";
+const ASSUME_VALID_HASH: &str = "0000003ca3c99aff040f2563c2ad8f8ec88bd0fd6b8f0895cfaf1ef90353a62c";
 // Bitcoin
-const ASSUME_VALID_HASH: &str = "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880";
-const WORKERS: usize = 128;
+// const ASSUME_VALID_HASH: &str = "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880";
+const WORKERS: usize = 32;
 pub const DUP_COINBASE_ONE: &str =
     "e3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468";
 pub const DUP_COINBASE_TWO: &str =

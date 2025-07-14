@@ -22,8 +22,3 @@ To run the verifier on Signet:
 ```
 cargo run ../contrib/signet_outpoints.sqlite --release
 ```
-
-On Bitcoin
-```
-cargo run <path/to/outpoints.sqlite> --release
-```
