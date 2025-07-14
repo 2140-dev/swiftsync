@@ -22,9 +22,15 @@ fn main() {
         .set_user_agent("/bitcoin-feeler:0.1.0".to_string())
         .connection_timeout(Duration::from_millis(3500))
         .change_network(NETWORK)
-        .open_connection(socket_addr);
+        .open_feeler(socket_addr);
     match connection {
-        Ok(_) => tracing::info!("Connection successful!"),
+        Ok(f) => {
+            tracing::info!(
+                "Connection successful: Advertised protocol version {}, Adveristed services {}",
+                f.protocol_version.0,
+                f.services
+            );
+        }
         Err(e) => tracing::warn!("Connection failed {e:?}"),
     }
 }

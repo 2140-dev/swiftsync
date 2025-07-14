@@ -14,7 +14,7 @@ use tokio::{
 
 use crate::{
     async_awaiter, interpret_first_message, make_version, version_handshake_async,
-    ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
+    ConnectionBuilder, ConnectionContext, Feeler, HandshakeError, Negotiation, ParseMessageError,
     ReadContext, ReadHalf, WriteContext, WriteHalf,
 };
 
@@ -36,13 +36,17 @@ pub trait TokioConnectionExt {
         self,
         tcp_stream: TcpStream,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error>;
+
+    ///
+    #[allow(async_fn_in_trait)]
+    async fn open_feeler(self, to: impl Into<SocketAddr>) -> Result<Feeler, Self::Error>;
 }
 
 impl TokioConnectionExt for ConnectionBuilder {
     type Error = ConnectionError;
 
     async fn open_connection(
-        self,
+        mut self,
         to: impl Into<SocketAddr>,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         let socket_addr = to.into();
@@ -53,10 +57,26 @@ impl TokioConnectionExt for ConnectionBuilder {
     }
 
     async fn start_handshake(
-        self,
+        mut self,
         mut tcp_stream: TcpStream,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         version_handshake_async!(tcp_stream, self)
+    }
+
+    async fn open_feeler(mut self, to: impl Into<SocketAddr>) -> Result<Feeler, Self::Error> {
+        let socket_addr = to.into();
+        let timeout = tokio::time::timeout(self.tcp_timeout, TcpStream::connect(socket_addr)).await;
+        let mut tcp_stream =
+            timeout.map_err(|_| ConnectionError::Protocol(HandshakeError::Timeout))??;
+        let res: Result<(TcpStream, ConnectionContext), Self::Error> =
+            version_handshake_async!(tcp_stream, self);
+        let (_, ctx) = res?;
+        let services = ctx.write_ctx.their_services;
+        let protocol_version = ctx.write_ctx.their_protocol_verison;
+        Ok(Feeler {
+            services,
+            protocol_version,
+        })
     }
 }
 
