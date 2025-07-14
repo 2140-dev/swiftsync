@@ -1,7 +1,12 @@
 [package]
 name = "swiftsync-p2p"
+authors = ["Rob <rob@2140.dev>"]
 version = "0.1.0"
-edition = "2024"
+description = "Bitcoin peer-to-peer connection tools"
+edition = "2021"
+keywords = ["bitcoin", "cryptography", "network", "peer-to-peer"]
+categories = ["cryptography::cryptocurrencies"]
+rust-version = "1.75.0"
 
 [dependencies]
 bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2b07f59545de16b66b3bf8ee988757c2d0c14afb" }

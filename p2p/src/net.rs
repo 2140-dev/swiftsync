@@ -3,16 +3,16 @@ use std::{
     net::{SocketAddr, TcpStream},
 };
 
-use bitcoin::p2p::Magic;
 use bitcoin::p2p::message::NetworkMessage;
 use bitcoin::p2p::message::RawNetworkMessage;
+use bitcoin::p2p::Magic;
 use bitcoin::secp256k1::rand;
 use bitcoin::{consensus, p2p::message_compact_blocks::SendCmpct};
 
 use crate::{
+    blocking_awaiter, interpret_first_message, make_version, version_handshake_blocking,
     ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
-    ReadContext, ReadHalf, WriteContext, WriteHalf, blocking_awaiter, interpret_first_message,
-    make_version, version_handshake_blocking,
+    ReadContext, ReadHalf, WriteContext, WriteHalf,
 };
 
 /// Open a connection to a potential peer.

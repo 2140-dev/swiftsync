@@ -1,10 +1,10 @@
 use std::net::SocketAddrV4;
 
 use bitcoin::{
+    p2p::{message::NetworkMessage, ServiceFlags},
     BlockHash, Network,
-    p2p::{ServiceFlags, message::NetworkMessage},
 };
-use corepc_node::{P2P, exe_path};
+use corepc_node::{exe_path, P2P};
 use swiftsync_p2p::ConnectionBuilder;
 
 #[derive(Debug, Clone)]

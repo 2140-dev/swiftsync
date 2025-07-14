@@ -1,11 +1,11 @@
 use std::{net::SocketAddr, time::Duration};
 
 use bitcoin::{
-    Network,
     secp256k1::rand::{seq::SliceRandom, thread_rng},
+    Network,
 };
-use peers::{PortExt, SeedsExt, dns::DnsQuery};
-use swiftsync_p2p::{ConnectionBuilder, net::ConnectionExt};
+use peers::{dns::DnsQuery, PortExt, SeedsExt};
+use swiftsync_p2p::{net::ConnectionExt, ConnectionBuilder};
 
 const NETWORK: Network = Network::Signet;
 

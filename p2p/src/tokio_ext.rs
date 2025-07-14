@@ -13,9 +13,9 @@ use tokio::{
 };
 
 use crate::{
+    async_awaiter, interpret_first_message, make_version, version_handshake_async,
     ConnectionBuilder, ConnectionContext, HandshakeError, Negotiation, ParseMessageError,
-    ReadContext, ReadHalf, WriteContext, WriteHalf, async_awaiter, interpret_first_message,
-    make_version, version_handshake_async,
+    ReadContext, ReadHalf, WriteContext, WriteHalf,
 };
 
 /// Connect to peers using `tokio`.
@@ -32,7 +32,10 @@ pub trait TokioConnectionExt {
     /// Start a handshake with a pre-existing connection. Normally used after establishing a Socks5
     /// proxy connection.
     #[allow(async_fn_in_trait)]
-    async fn start_handshake(self, tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), Self::Error>;
+    async fn start_handshake(
+        self,
+        tcp_stream: TcpStream,
+    ) -> Result<(TcpStream, ConnectionContext), Self::Error>;
 }
 
 impl TokioConnectionExt for ConnectionBuilder {
@@ -49,7 +52,10 @@ impl TokioConnectionExt for ConnectionBuilder {
         version_handshake_async!(tcp_stream, self)
     }
 
-    async fn start_handshake(self, mut tcp_stream: TcpStream) -> Result<(TcpStream, ConnectionContext), Self::Error> {
+    async fn start_handshake(
+        self,
+        mut tcp_stream: TcpStream,
+    ) -> Result<(TcpStream, ConnectionContext), Self::Error> {
         version_handshake_async!(tcp_stream, self)
     }
 }
@@ -102,7 +108,7 @@ impl TokioWriteNetworkMessageExt for TcpStream {
         &mut self,
         message: NetworkMessage,
         ctx: impl AsMut<WriteContext>,
-    ) -> impl Future<Output = Result<(), WriteError>> {
+    ) -> impl std::future::Future<Output = Result<(), WriteError>> {
         write_for_any(self, message, ctx)
     }
 }
@@ -112,7 +118,7 @@ impl TokioWriteNetworkMessageExt for OwnedWriteHalf {
         &mut self,
         message: NetworkMessage,
         ctx: impl AsMut<WriteContext>,
-    ) -> impl Future<Output = Result<(), WriteError>> {
+    ) -> impl std::future::Future<Output = Result<(), WriteError>> {
         write_for_any(self, message, ctx)
     }
 }

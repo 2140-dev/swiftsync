@@ -1,11 +1,9 @@
-# Quickstart for new Rust projects
+# SwiftSync
 
-Useful `just` commands:
+This repository is a collection of crates related to a SwiftSync node implementation. Some crates will be SwiftSync-specific, while others may have broader use cases.
 
-`just run`: run the binary in release mode
-
-`just test`: run the unit tests, doc tests (will fail if there is no library)
-
-`just delete`: delete local git branches that have been merged to master
-
+`accumulator`: A hash-based SwiftSync accumulator used to add and subtrack elements from a set.
+`p2p`: Utilities for creating and facilitating Bitcoin peer-to-peer connections.
+`peers`: Tools to find Bitcoin peers
+`utxo_verifier`: A binary application that uses each of the above crates to verify a UTXO snapshot is valid.
 

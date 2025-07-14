@@ -5,22 +5,22 @@ use std::{
 
 use accumulator::Accumulator;
 use bitcoin::{
-    BlockHash, Network, OutPoint,
     block::BlockUncheckedExt,
     p2p::{
-        ServiceFlags,
         message::NetworkMessage,
         message_blockdata::{GetBlocksMessage, Inventory},
+        ServiceFlags,
     },
     secp256k1::rand::{seq::SliceRandom, thread_rng},
+    BlockHash, Network, OutPoint,
 };
 use peers::{
-    PortExt,
     dns::{DnsQuery, TokioDnsExt},
+    PortExt,
 };
 use swiftsync_p2p::{
-    ConnectionBuilder,
     tokio_ext::{TokioConnectionExt, TokioReadNetworkMessageExt, TokioWriteNetworkMessageExt},
+    ConnectionBuilder,
 };
 
 const DNS_SEED: &str = "seed.bitcoin.sprovoost.nl";

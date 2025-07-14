@@ -4,12 +4,13 @@ use std::{
 };
 
 use bitcoin::{
-    FeeRate, Network, consensus,
+    consensus,
     p2p::{
-        Address, Magic, ServiceFlags,
         message::{CommandString, NetworkMessage, RawNetworkMessage},
         message_network::VersionMessage,
+        Address, Magic, ServiceFlags,
     },
+    FeeRate, Network,
 };
 use validation::ValidationExt;
 
