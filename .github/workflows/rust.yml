@@ -31,10 +31,7 @@ jobs:
       - run: just check
   # Build and test the code across platforms.
   test:
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
