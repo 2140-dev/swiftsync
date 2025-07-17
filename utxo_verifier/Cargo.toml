@@ -5,9 +5,10 @@ edition = "2024"
 
 [dependencies]
 accumulator = { path = "../accumulator/" }
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2b07f59545de16b66b3bf8ee988757c2d0c14afb" }
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
 peers = { path = "../peers/", default-features = false }
 p2p = { path = "../p2p/", package = "swiftsync-p2p", default-features = false }
+p2p-messages = { package = "bitcoin-p2p-messages",  git = "https://github.com/rust-bitcoin/rust-bitcoin", rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 rusqlite = { version = "0.36.0", features = ["bundled"] }

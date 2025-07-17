@@ -7,11 +7,6 @@ use std::{
 
 use bitcoin::{
     BlockHash, OutPoint,
-    p2p::{
-        ServiceFlags,
-        message::{InventoryPayload, NetworkMessage},
-        message_blockdata::Inventory,
-    },
     script::ScriptExt,
     secp256k1::rand::{seq::IteratorRandom, thread_rng},
     transaction::TransactionExt,
@@ -19,6 +14,11 @@ use bitcoin::{
 use p2p::{
     ConnectionBuilder,
     net::{ConnectionExt, ReadExt, WriteExt},
+};
+use p2p_messages::{
+    ServiceFlags,
+    message::{InventoryPayload, NetworkMessage},
+    message_blockdata::Inventory,
 };
 use peers::PortExt;
 

@@ -3,14 +3,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use bitcoin::{
-    consensus,
-    p2p::{
-        message::{CommandString, NetworkMessage, RawNetworkMessage},
-        message_network::VersionMessage,
-        Address, Magic, ServiceFlags,
-    },
-    FeeRate, Network,
+use bitcoin::{consensus, FeeRate, Network};
+use p2p::{
+    message::{CommandString, NetworkMessage, RawNetworkMessage},
+    message_network::VersionMessage,
+    Address, Magic, ServiceFlags,
 };
 use validation::ValidationExt;
 
@@ -648,7 +645,7 @@ macro_rules! define_version_message_logic {
         }
 
         let mut negotiation = Negotiation::default();
-        let magic = Magic::from_params($conn.network);
+        let magic = Magic::from_params($conn.network).expect("unknown network");
         let mut write_half = WriteHalf::V1(magic);
         let mut read_half = ReadHalf::V1(magic);
         let nonce = rand::random();
@@ -744,6 +741,7 @@ macro_rules! define_version_message_logic {
     }};
 }
 
+#[cfg(feature = "tokio")]
 macro_rules! async_awaiter {
     ($e:expr) => {
         $e.await
@@ -756,6 +754,7 @@ macro_rules! blocking_awaiter {
     };
 }
 
+#[cfg(feature = "tokio")]
 macro_rules! read_message_async {
     ($reader:expr, $magic:expr) => {
         $crate::define_read_message_logic!(async_awaiter, $reader, $magic)
@@ -774,15 +773,19 @@ macro_rules! version_handshake_blocking {
     };
 }
 
+#[cfg(feature = "tokio")]
 macro_rules! version_handshake_async {
     ($reader:expr, $conn:ident) => {
         $crate::define_version_message_logic!(async_awaiter, $reader, $conn)
     };
 }
 
+#[cfg(feature = "tokio")]
 pub(crate) use async_awaiter;
 pub(crate) use blocking_awaiter;
+#[cfg(feature = "tokio")]
 pub(crate) use read_message_async;
 pub(crate) use read_message_blocking;
+#[cfg(feature = "tokio")]
 pub(crate) use version_handshake_async;
 pub(crate) use version_handshake_blocking;

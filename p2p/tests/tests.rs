@@ -1,10 +1,8 @@
 use std::net::SocketAddrV4;
 
-use bitcoin::{
-    p2p::{message::NetworkMessage, ServiceFlags},
-    BlockHash, Network,
-};
+use bitcoin::{BlockHash, Network};
 use corepc_node::{exe_path, P2P};
+use p2p::{message::NetworkMessage, ServiceFlags};
 use swiftsync_p2p::ConnectionBuilder;
 
 #[derive(Debug, Clone)]
@@ -61,7 +59,7 @@ fn filters_unsupported_messages() {
     let err = tcp_stream.write_message(NetworkMessage::MemPool, &mut ctx);
     assert!(err.is_err());
     let err = tcp_stream.write_message(
-        NetworkMessage::GetCFilters(bitcoin::p2p::message_filter::GetCFilters {
+        NetworkMessage::GetCFilters(p2p::message_filter::GetCFilters {
             filter_type: 0x00,
             start_height: 0.into(),
             stop_hash: BlockHash::from_byte_array([0; 32]),
