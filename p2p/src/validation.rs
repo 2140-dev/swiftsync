@@ -1,4 +1,5 @@
-use bitcoin::{block::HeaderExt, p2p::message_blockdata::Inventory, BlockHeader};
+use bitcoin::{block::HeaderExt, BlockHeader};
+use p2p::message_blockdata::Inventory;
 
 pub(crate) trait ValidationExt {
     fn is_valid(&self) -> bool;

@@ -1,10 +1,11 @@
 use ::std::fmt::{Debug, Display};
 use std::net::SocketAddr;
 
-use bitcoin::p2p::message::{NetworkMessage, RawNetworkMessage};
-use bitcoin::p2p::message_compact_blocks::SendCmpct;
+use bitcoin::consensus;
 use bitcoin::secp256k1::rand;
-use bitcoin::{consensus, p2p::Magic};
+use p2p::message::{NetworkMessage, RawNetworkMessage};
+use p2p::message_compact_blocks::SendCmpct;
+use p2p::Magic;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::{

@@ -6,13 +6,13 @@ use std::{
 use accumulator::Accumulator;
 use bitcoin::{
     block::BlockUncheckedExt,
-    p2p::{
-        message::NetworkMessage,
-        message_blockdata::{GetBlocksMessage, Inventory},
-        ServiceFlags,
-    },
     secp256k1::rand::{seq::SliceRandom, thread_rng},
     BlockHash, Network, OutPoint,
+};
+use p2p::{
+    message::NetworkMessage,
+    message_blockdata::{GetBlocksMessage, Inventory},
+    ServiceFlags,
 };
 use peers::{
     dns::{DnsQuery, TokioDnsExt},

@@ -3,11 +3,12 @@ use std::{
     net::{SocketAddr, TcpStream},
 };
 
-use bitcoin::p2p::message::NetworkMessage;
-use bitcoin::p2p::message::RawNetworkMessage;
-use bitcoin::p2p::Magic;
+use bitcoin::consensus;
 use bitcoin::secp256k1::rand;
-use bitcoin::{consensus, p2p::message_compact_blocks::SendCmpct};
+use p2p::message::NetworkMessage;
+use p2p::message::RawNetworkMessage;
+use p2p::message_compact_blocks::SendCmpct;
+use p2p::Magic;
 
 use crate::{
     blocking_awaiter, interpret_first_message, make_version, version_handshake_blocking,

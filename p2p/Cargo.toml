@@ -9,7 +9,8 @@ categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.75.0"
 
 [dependencies]
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2b07f59545de16b66b3bf8ee988757c2d0c14afb" }
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
+p2p = { package = "bitcoin-p2p-messages",  git = "https://github.com/rust-bitcoin/rust-bitcoin", rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
 tokio = { version = "1", default-features = false, optional = true, features = [
     "sync",
     "io-util",
