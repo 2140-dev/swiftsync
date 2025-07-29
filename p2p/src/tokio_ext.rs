@@ -38,7 +38,7 @@ pub trait TokioConnectionExt {
         tcp_stream: TcpStream,
     ) -> Result<(TcpStream, ConnectionContext), Self::Error>;
 
-    ///
+    /// Open a feeler to test a node's liveliness
     #[allow(async_fn_in_trait)]
     async fn open_feeler(self, to: impl Into<SocketAddr>) -> Result<Feeler, Self::Error>;
 }

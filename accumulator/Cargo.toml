@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = false, rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" } 
+bitcoin = { workspace = true } 
 
 [dev-dependencies]
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = true, rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
 rusqlite = { version = "0.36.0", features = ["bundled"] }
