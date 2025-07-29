@@ -15,6 +15,7 @@ use validation::ValidationExt;
 pub mod net;
 
 mod validation;
+mod handshake;
 
 /// The maximum network message size in bytes.
 pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
