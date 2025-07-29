@@ -10,31 +10,17 @@ rust-version = "1.75.0"
 
 [dependencies]
 bitcoin = { workspace = true, features = ["rand-std"] }
-p2p = { package = "bitcoin-p2p-messages",  git = "https://github.com/rust-bitcoin/rust-bitcoin", rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
-tokio = { version = "1", default-features = false, optional = true, features = [
-    "sync",
-    "io-util",
-    "time",
-    "net",
-]}
+p2p = { package = "bitcoin-p2p-messages",  git = "https://github.com/rustaceanrob/rust-bitcoin", rev = "9f201781d9110be98757dc1c6782bc91c8a2c501" }
 
 [dev-dependencies]
 corepc-node = { version = "0.8.0", default-features = false, features = [
     "29_0", "download"
 ] }
-tokio = { version = "1", default-features = false, features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
 accumulator = { path = "../accumulator/" }
 peers = { path = "../peers/", default-features = true }
-
-[features]
-default = ["tokio"]
-tokio = ["dep:tokio"]
-
-[[example]]
-name = "update_accumulator"
 
 [[example]]
 name = "feeler"

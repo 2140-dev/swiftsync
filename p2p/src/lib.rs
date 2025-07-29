@@ -5,17 +5,14 @@ use std::{
 
 use bitcoin::{consensus, FeeRate, Network};
 use p2p::{
-    message::{CommandString, NetworkMessage, RawNetworkMessage},
-    message_network::VersionMessage,
-    Address, Magic, ServiceFlags,
+    message::{NetworkMessage, RawNetworkMessage},
+    message_network::{UserAgent, VersionMessage},
+    Address, Magic, ProtocolVersion, ServiceFlags,
 };
 use validation::ValidationExt;
 
 /// Extension traits for `std` networking tools.
 pub mod net;
-/// Extension traits for use with the `tokio` asynchronous runtime framework.
-#[cfg(feature = "tokio")]
-pub mod tokio_ext;
 
 mod validation;
 
@@ -25,33 +22,6 @@ pub const MAX_MESSAGE_SIZE: u32 = 1024 * 1024 * 32;
 pub const DEFAULT_USER_AGENT: &str = "/swiftsync:0.1.0/";
 const LOCAL_HOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNREACHABLE: SocketAddr = SocketAddr::V4(SocketAddrV4::new(LOCAL_HOST, 0));
-
-/// A version of the Bitcoin peer-to-peer messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
-pub struct ProtocolVerison(pub u32);
-
-impl ProtocolVerison {
-    /// Support for relaying transactions by WTXID
-    pub const WTXID_RELAY: ProtocolVerison = ProtocolVerison(70016);
-    /// Invalid compact blocks are not a ban
-    pub const NO_BAN_CMPCT: ProtocolVerison = ProtocolVerison(70015);
-    /// Compact block message support
-    pub const CMPCT_BLOCKS: ProtocolVerison = ProtocolVerison(70014);
-    /// Support the `feefilter` message
-    pub const FEE_FILTER: ProtocolVerison = ProtocolVerison(70013);
-    /// Support `sendheaders` message to advertise new blocks with `header` messages
-    pub const SEND_HEADERS: ProtocolVerison = ProtocolVerison(70012);
-    /// Support NODE_BLOOM messages and do not support bloom filter messages if not set
-    pub const NODE_BLOOM: ProtocolVerison = ProtocolVerison(70011);
-    /// Support `reject` messages
-    pub const REJECT: ProtocolVerison = ProtocolVerison(70002);
-    /// Support bloom filter messages
-    pub const BLOOM_FILTERS: ProtocolVerison = ProtocolVerison(70001);
-    /// Support `mempool` messages
-    pub const MEMPOOL: ProtocolVerison = ProtocolVerison(60002);
-    /// Support `ping` and `pong` messages
-    pub const PING_PONG: ProtocolVerison = ProtocolVerison(60001);
-}
 
 /// The context for the connection. This includes data like the current cipher state, their
 /// services offered, their fee filter, last message time, and more.
@@ -67,7 +37,7 @@ impl ConnectionContext {
         read_half: ReadHalf,
         negotiation: Negotiation,
         their_services: ServiceFlags,
-        their_version: ProtocolVerison,
+        their_version: ProtocolVersion,
     ) -> Self {
         let read_ctx = ReadContext {
             read_half,
@@ -173,7 +143,6 @@ impl ReadContext {
 
     fn is_valid(&self, message: &NetworkMessage) -> bool {
         match &message {
-            NetworkMessage::FeeFilter(f) => *f > 0,
             NetworkMessage::Headers(h) => h.is_valid(),
             NetworkMessage::GetData(r) => r.0.is_valid(),
             NetworkMessage::Inv(r) => r.0.is_valid(),
@@ -184,10 +153,6 @@ impl ReadContext {
     fn update_metadata(&mut self, message: &NetworkMessage) {
         self.last_message = Instant::now();
         match &message {
-            NetworkMessage::FeeFilter(f) => {
-                let fee_rate = FeeRate::from_sat_per_kwu(*f as u32 / 4);
-                self.fee_filter = fee_rate;
-            }
             NetworkMessage::Alert(_) => self.final_alert = true,
             NetworkMessage::SendHeaders => {
                 self.negotiation.send_headers.them = true;
@@ -209,7 +174,7 @@ pub struct WriteContext {
     write_half: WriteHalf,
     negotiation: Negotiation,
     their_services: ServiceFlags,
-    their_protocol_verison: ProtocolVerison,
+    their_protocol_verison: ProtocolVersion,
 }
 
 impl WriteContext {
@@ -263,11 +228,11 @@ pub struct ConnectionBuilder {
     our_ip: SocketAddr,
     offered_services: ServiceFlags,
     their_services: ServiceFlags,
-    our_version: ProtocolVerison,
-    their_version: ProtocolVerison,
+    our_version: ProtocolVersion,
+    their_version: ProtocolVersion,
     offer: Offered,
     start_height: i32,
-    user_agent: String,
+    user_agent: UserAgent,
     tcp_timeout: Duration,
 }
 
@@ -279,11 +244,11 @@ impl ConnectionBuilder {
             our_ip: UNREACHABLE,
             offered_services: ServiceFlags::NONE,
             their_services: ServiceFlags::NONE,
-            our_version: ProtocolVerison::WTXID_RELAY,
-            their_version: ProtocolVerison::WTXID_RELAY,
+            our_version: ProtocolVersion::WTXID_RELAY_VERSION,
+            their_version: ProtocolVersion::WTXID_RELAY_VERSION,
             offer: Offered::default(),
             start_height: 0,
-            user_agent: DEFAULT_USER_AGENT.to_string(),
+            user_agent: UserAgent::from_nonstandard(DEFAULT_USER_AGENT),
             tcp_timeout: Duration::from_secs(2),
         }
     }
@@ -305,7 +270,7 @@ impl ConnectionBuilder {
     }
 
     /// Downgrade your advertised version.
-    pub fn downgrade_to_version(self, us: ProtocolVerison) -> Self {
+    pub fn downgrade_to_version(self, us: ProtocolVersion) -> Self {
         Self {
             our_version: us,
             ..self
@@ -313,7 +278,7 @@ impl ConnectionBuilder {
     }
 
     /// Accept a minimum version.
-    pub fn accept_minimum_version(self, them: ProtocolVerison) -> Self {
+    pub fn accept_minimum_version(self, them: ProtocolVersion) -> Self {
         Self {
             their_version: them,
             ..self
@@ -337,7 +302,7 @@ impl ConnectionBuilder {
     }
 
     /// Set the user agent sent as part of your version message.
-    pub fn set_user_agent(self, user_agent: String) -> Self {
+    pub fn set_user_agent(self, user_agent: UserAgent) -> Self {
         Self { user_agent, ..self }
     }
 
@@ -435,40 +400,16 @@ impl Default for Offered {
 #[derive(Debug, Clone, Copy)]
 pub struct Feeler {
     pub services: ServiceFlags,
-    pub protocol_version: ProtocolVerison,
-}
-
-pub(crate) struct MessageHeader {
-    magic: Magic,
-    _command: CommandString,
-    length: u32,
-    _checksum: u32,
-}
-
-impl consensus::Decodable for MessageHeader {
-    fn consensus_decode<R: bitcoin::io::BufRead + ?Sized>(
-        reader: &mut R,
-    ) -> Result<Self, bitcoin::consensus::encode::Error> {
-        let magic = Magic::consensus_decode(reader)?;
-        let _command = CommandString::consensus_decode(reader)?;
-        let length = u32::consensus_decode(reader)?;
-        let _checksum = u32::consensus_decode(reader)?;
-        Ok(Self {
-            magic,
-            _command,
-            length,
-            _checksum,
-        })
-    }
+    pub protocol_version: ProtocolVersion,
 }
 
 fn make_version(
-    version: ProtocolVerison,
+    version: ProtocolVersion,
     our_services: ServiceFlags,
     their_services: ServiceFlags,
     our_ip: SocketAddr,
     start_height: i32,
-    user_agent: String,
+    user_agent: UserAgent,
     nonce: u64,
 ) -> VersionMessage {
     let now = SystemTime::now()
@@ -478,7 +419,7 @@ fn make_version(
     let them = Address::new(&UNREACHABLE, their_services);
     let us = Address::new(&our_ip, our_services);
     VersionMessage {
-        version: version.0,
+        version,
         services: our_services,
         timestamp: now,
         receiver: them,
@@ -494,22 +435,14 @@ fn make_version(
 fn interpret_first_message(
     message: NetworkMessage,
     nonce: u64,
-    their_expected_version: ProtocolVerison,
+    their_expected_version: ProtocolVersion,
     their_expected_services: ServiceFlags,
-) -> Result<(ProtocolVerison, ServiceFlags), HandshakeError> {
+) -> Result<(ProtocolVersion, ServiceFlags), HandshakeError> {
     if let NetworkMessage::Version(version) = message {
         if version.nonce.eq(&nonce) {
             return Err(HandshakeError::ConnectedToSelf);
         }
-        if version.version < their_expected_version.0 {
-            return Err(HandshakeError::TooLowVersion(ProtocolVerison(
-                version.version,
-            )));
-        }
-        if !version.services.has(their_expected_services) {
-            return Err(HandshakeError::UnsupportedFeature);
-        }
-        Ok((ProtocolVerison(version.version), version.services))
+        Ok((version.version, version.services))
     } else {
         Err(HandshakeError::IrrelevantMessage(message))
     }
@@ -564,7 +497,7 @@ impl std::error::Error for ParseMessageError {}
 #[derive(Debug, Clone)]
 pub enum HandshakeError {
     /// Their version is too low for the configured preferences.
-    TooLowVersion(ProtocolVerison),
+    TooLowVersion(ProtocolVersion),
     /// Some message was sent before the handshake completed.
     IrrelevantMessage(NetworkMessage),
     /// This is a connection to self.
@@ -591,7 +524,7 @@ impl std::fmt::Display for HandshakeError {
                 "a feature we require is not supported by the connection."
             ),
             Self::TooLowVersion(version) => {
-                write!(f, "the remote peer had a too-low version: {}", version.0)
+                write!(f, "the remote peer had a too-low version: {:?}", version)
             }
         }
     }
@@ -610,7 +543,7 @@ macro_rules! define_read_message_logic {
 
         let mut message_buf = vec![0_u8; 24];
         read!(&mut message_buf)?;
-        let header: $crate::MessageHeader = consensus::deserialize_partial(&message_buf)
+        let header: V1MessageHeader = consensus::deserialize_partial(&message_buf)
             .map_err(ParseMessageError::Consensus)?
             .0;
         if header.magic != $magic {
@@ -741,23 +674,9 @@ macro_rules! define_version_message_logic {
     }};
 }
 
-#[cfg(feature = "tokio")]
-macro_rules! async_awaiter {
-    ($e:expr) => {
-        $e.await
-    };
-}
-
 macro_rules! blocking_awaiter {
     ($e:expr) => {
         $e
-    };
-}
-
-#[cfg(feature = "tokio")]
-macro_rules! read_message_async {
-    ($reader:expr, $magic:expr) => {
-        $crate::define_read_message_logic!(async_awaiter, $reader, $magic)
     };
 }
 
@@ -773,19 +692,6 @@ macro_rules! version_handshake_blocking {
     };
 }
 
-#[cfg(feature = "tokio")]
-macro_rules! version_handshake_async {
-    ($reader:expr, $conn:ident) => {
-        $crate::define_version_message_logic!(async_awaiter, $reader, $conn)
-    };
-}
-
-#[cfg(feature = "tokio")]
-pub(crate) use async_awaiter;
 pub(crate) use blocking_awaiter;
-#[cfg(feature = "tokio")]
-pub(crate) use read_message_async;
 pub(crate) use read_message_blocking;
-#[cfg(feature = "tokio")]
-pub(crate) use version_handshake_async;
 pub(crate) use version_handshake_blocking;

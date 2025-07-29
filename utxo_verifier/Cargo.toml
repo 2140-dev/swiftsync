@@ -8,7 +8,7 @@ accumulator = { path = "../accumulator/" }
 bitcoin = { workspace = true, features = ["rand-std"] }
 peers = { path = "../peers/", default-features = false }
 p2p = { path = "../p2p/", package = "swiftsync-p2p", default-features = false }
-p2p-messages = { package = "bitcoin-p2p-messages",  git = "https://github.com/rust-bitcoin/rust-bitcoin", rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
+p2p-messages = { package = "bitcoin-p2p-messages",  git = "https://github.com/rustaceanrob/rust-bitcoin", rev = "9f201781d9110be98757dc1c6782bc91c8a2c501" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 rusqlite = { version = "0.36.0", features = ["bundled"] }

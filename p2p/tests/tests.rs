@@ -91,17 +91,3 @@ fn enforces_desired_services() {
     assert!(ok.is_ok());
     bitcoind.stop().unwrap();
 }
-
-// Tokio tests
-
-#[tokio::test]
-async fn does_handshake_async() {
-    use swiftsync_p2p::tokio_ext::TokioConnectionExt;
-    let (mut bitcoind, socket_addr) = TestNodeBuilder::new().start();
-    let _ = ConnectionBuilder::new()
-        .change_network(Network::Regtest)
-        .open_connection(socket_addr)
-        .await
-        .unwrap();
-    bitcoind.stop().unwrap();
-}

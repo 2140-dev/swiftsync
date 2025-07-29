@@ -4,4 +4,4 @@ default-members = ["accumulator", "p2p", "peers", "utxo_verifier"]
 resolver = "3"
 
 [workspace.dependencies]
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = false, rev = "2bb9bb6bc99ba07ed3d543a512ec3d2a9462770d" }
+bitcoin = { git = "https://github.com/rustaceanrob/rust-bitcoin", default-features = false, rev = "9f201781d9110be98757dc1c6782bc91c8a2c501" }

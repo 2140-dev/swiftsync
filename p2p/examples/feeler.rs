@@ -4,6 +4,7 @@ use bitcoin::{
     secp256k1::rand::{seq::SliceRandom, thread_rng},
     Network,
 };
+use p2p::message_network::UserAgent;
 use peers::{dns::DnsQuery, PortExt, SeedsExt};
 use swiftsync_p2p::{net::ConnectionExt, ConnectionBuilder};
 
@@ -19,15 +20,15 @@ fn main() {
     let socket_addr = SocketAddr::new(any, NETWORK.port());
     tracing::info!("Attempting a connection");
     let connection = ConnectionBuilder::new()
-        .set_user_agent("/bitcoin-feeler:0.1.0".to_string())
+        .set_user_agent(UserAgent::from_nonstandard("bitcoin-feeler"))
         .connection_timeout(Duration::from_millis(3500))
         .change_network(NETWORK)
         .open_feeler(socket_addr);
     match connection {
         Ok(f) => {
             tracing::info!(
-                "Connection successful: Advertised protocol version {}, Adveristed services {}",
-                f.protocol_version.0,
+                "Connection successful: Advertised protocol version {:?}, Adveristed services {}",
+                f.protocol_version,
                 f.services
             );
         }

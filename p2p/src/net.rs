@@ -8,6 +8,7 @@ use bitcoin::secp256k1::rand;
 use p2p::message::NetworkMessage;
 use p2p::message::RawNetworkMessage;
 use p2p::message_compact_blocks::SendCmpct;
+use p2p::message::V1MessageHeader;
 use p2p::Magic;
 
 use crate::{
