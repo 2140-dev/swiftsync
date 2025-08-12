@@ -7,7 +7,7 @@ const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
 #[test]
 fn test_static_utxo_set() {
     let mut acc = Accumulator::new();
-    let conn = Connection::open("../contrib/signet_outpoints.sqlite").unwrap();
+    let conn = Connection::open("../contrib/data/signet_outpoints.sqlite").unwrap();
     let mut stmt = conn.prepare(SELECT_STMT).unwrap();
     let mut rows = stmt.query([]).unwrap();
     while let Some(row) = rows.next().unwrap() {
