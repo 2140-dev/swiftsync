@@ -1,6 +1,6 @@
 [workspace]
-members = ["accumulator", "peers"]
-default-members = ["accumulator", "peers"]
+members = ["accumulator", "network"]
+default-members = ["accumulator", "network"]
 resolver = "3"
 
 [workspace.dependencies]
