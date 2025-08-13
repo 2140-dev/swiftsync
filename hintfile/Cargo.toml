@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bitcoin = { workspace = true }
 kernel = { package = "bitcoinkernel", git = "https://github.com/alexanderwiederin/rust-bitcoinkernel.git" }
+
+[[bin]]
+name = "construct"
