@@ -1,7 +1,7 @@
 [workspace]
 members = ["accumulator", "hintfile", "network"]
 default-members = ["accumulator", "hintfile", "network"]
-resolver = "3"
+resolver = "2"
 
 [workspace.dependencies]
 bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = false, rev = "16cc257c3695dea0e7301a5fa9cab44b8ed60598" }
