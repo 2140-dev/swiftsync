@@ -1,4 +1,9 @@
-use std::io::{self, Read, Write};
+use std::{
+    collections::BTreeMap,
+    io::{self, Read, Write},
+};
+
+use bitcoin::{BlockHeight, BlockHeightInterval};
 
 pub fn write_compact_size<W: Write>(value: u64, writer: &mut W) -> Result<(), io::Error> {
     match value {
@@ -34,6 +39,41 @@ pub fn read_compact_size<R: Read>(reader: &mut R) -> Result<u64, io::Error> {
         }
         0..=0xFC => Ok(prefix as u64),
         _ => panic!("unexpected large offset"),
+    }
+}
+
+#[derive(Debug)]
+pub struct Hints {
+    map: BTreeMap<BlockHeight, Vec<u64>>,
+}
+
+impl Hints {
+    // # Panics
+    //
+    // Panics when expected data is not present, or the hintfile overflows the maximum blockheight
+    pub fn from_file<R: Read>(reader: &mut R) -> Self {
+        let mut map = BTreeMap::new();
+        let mut height = BlockHeight::from_u32(1);
+        while let Ok(count) = read_compact_size(reader) {
+            // panics on 32 bit machines
+            let mut offsets = Vec::with_capacity(count as usize);
+            for _ in 0..count {
+                offsets.push(read_compact_size(reader).expect("unexpected end of hintfile"));
+            }
+            map.insert(height, offsets);
+            height = height
+                .checked_add(BlockHeightInterval::from_u32(1))
+                .expect("hintfile absurdly large.")
+        }
+        Self { map }
+    }
+
+    /// # Panics
+    ///
+    /// If there are no offset present at that height, aka an overflow, or the entry has already
+    /// been fetched.
+    pub fn take_block_offsets(&mut self, height: BlockHeight) -> Vec<u64> {
+        self.map.remove(&height).expect("block height overflow")
     }
 }
 
