@@ -1,4 +1,7 @@
-use bitcoin::{Network, TestnetVersion};
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    time::SystemTime,
+};
 
 pub mod dns;
 
@@ -18,46 +21,22 @@ fn encode_qname<S: AsRef<str>>(hostname: S, filter: Option<S>) -> Vec<u8> {
     qname
 }
 
-pub trait PortExt {
-    fn port(&self) -> u16;
+fn rand_bytes() -> [u8; 2] {
+    let mut hasher = DefaultHasher::new();
+    SystemTime::now().hash(&mut hasher);
+    let mut hash = hasher.finish();
+    hash ^= hash << 13;
+    hash ^= hash >> 17;
+    hash ^= hash << 5;
+    hash.to_be_bytes()[..2].try_into().expect("trivial cast")
 }
 
-impl PortExt for Network {
-    fn port(&self) -> u16 {
-        match self {
-            Self::Signet => 38333,
-            Self::Bitcoin => 8333,
-            Self::Regtest => 18444,
-            Self::Testnet(TestnetVersion::V3) => 48333,
-            Self::Testnet(TestnetVersion::V4) => 48333,
-            _ => unreachable!(),
-        }
-    }
-}
+#[cfg(test)]
+mod test {
+    use crate::rand_bytes;
 
-pub trait SeedsExt {
-    fn dns_seeds(&self) -> Vec<&str>;
-}
-
-impl SeedsExt for Network {
-    fn dns_seeds(&self) -> Vec<&str> {
-        match self {
-            Self::Bitcoin => vec![
-                "seed.bitcoin.sipa.be",
-                "dnsseed.bluematt.me",
-                "dnsseed.bitcoin.dashjr.org",
-                "seed.bitcoinstats.com",
-                "seed.bitcoin.jonasschnelli.ch",
-                "seed.btc.petertodd.org",
-                "seed.bitcoin.sprovoost.nl",
-                "dnsseed.emzy.de",
-                "seed.bitcoin.wiz.biz",
-            ],
-            Self::Signet => vec![
-                "seed.signet.bitcoin.sprovoost.nl",
-                "seed.signet.achownodes.xyz",
-            ],
-            _ => unimplemented!(),
-        }
+    #[test]
+    fn test_rand_bytes() {
+        rand_bytes();
     }
 }

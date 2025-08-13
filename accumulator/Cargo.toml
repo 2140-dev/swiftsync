@@ -7,4 +7,5 @@ edition = "2024"
 bitcoin = { workspace = true } 
 
 [dev-dependencies]
+bitcoin = { workspace = true, default-features = true } 
 rusqlite = { version = "0.36.0", features = ["bundled"] }

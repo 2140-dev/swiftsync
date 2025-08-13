@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bitcoin = { workspace = true, features = ["rand-std"] } 
 tokio = { version = "1", default-features = false, optional = true, features = [
     "io-util",
     "net",
@@ -14,5 +13,5 @@ tokio = { version = "1", default-features = false, optional = true, features = [
 tokio = { version = "1", default-features = false, features = ["full"] }
 
 [features]
-default = ["tokio"]
+default = []
 tokio = ["dep:tokio"]
