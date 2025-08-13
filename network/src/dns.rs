@@ -4,10 +4,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
-use bitcoin::secp256k1::rand::RngCore;
-use bitcoin::secp256k1::rand::thread_rng;
-
-use crate::encode_qname;
+use crate::{encode_qname, rand_bytes};
 
 const CLOUDFLARE: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53);
 
@@ -43,9 +40,7 @@ pub struct DnsQuery {
 impl DnsQuery {
     pub fn new(seed: &str, dns_resolver: SocketAddr) -> Self {
         // Build a header
-        let mut rng = thread_rng();
-        let mut message_id = [0, 0];
-        rng.fill_bytes(&mut message_id);
+        let message_id = rand_bytes();
         let mut message = message_id.to_vec();
         message.extend(RECURSIVE_FLAGS);
         message.push(0x00); // QDCOUNT
@@ -63,9 +58,7 @@ impl DnsQuery {
     }
 
     pub fn new_cloudflare(seed: &str) -> Self {
-        let mut rng = thread_rng();
-        let mut message_id = [0, 0];
-        rng.fill_bytes(&mut message_id);
+        let message_id = rand_bytes();
         let mut message = message_id.to_vec();
         message.extend(RECURSIVE_FLAGS);
         message.push(0x00); // QDCOUNT
