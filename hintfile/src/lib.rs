@@ -36,3 +36,30 @@ pub fn read_compact_size<R: Read>(reader: &mut R) -> Result<u64, io::Error> {
         _ => panic!("unexpected large offset"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{read_compact_size, write_compact_size};
+
+    #[test]
+    fn deser_roundtrip() {
+        let mut buf = Vec::new();
+        let less: u8 = 0xFB;
+        write_compact_size(less as u64, &mut buf).unwrap();
+        let read_cs = read_compact_size(&mut buf.as_slice()).unwrap();
+        let cast_less = read_cs as u8;
+        assert_eq!(less, cast_less);
+        let mut buf = Vec::new();
+        let median: u16 = 0xFFF;
+        write_compact_size(median as u64, &mut buf).unwrap();
+        let read_cs = read_compact_size(&mut buf.as_slice()).unwrap();
+        let cast_median = read_cs as u16;
+        assert_eq!(median, cast_median);
+        let mut buf = Vec::new();
+        let more: u32 = 0xFFFFF;
+        write_compact_size(more as u64, &mut buf).unwrap();
+        let read_cs = read_compact_size(&mut buf.as_slice()).unwrap();
+        let cast_more = read_cs as u32;
+        assert_eq!(more, cast_more);
+    }
+}
