@@ -72,8 +72,11 @@ impl Hints {
     ///
     /// If there are no offset present at that height, aka an overflow, or the entry has already
     /// been fetched.
-    pub fn take_block_offsets(&mut self, height: BlockHeight) -> Vec<u64> {
-        self.map.remove(&height).expect("block height overflow")
+    pub fn get_block_offsets(&self, height: BlockHeight) -> Vec<u64> {
+        self.map
+            .get(&height)
+            .cloned()
+            .expect("block height overflow")
     }
 }
 
