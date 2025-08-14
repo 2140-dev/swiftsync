@@ -18,13 +18,13 @@ fn main() {
         .build()
         .unwrap();
     let options = ChainstateManagerOptions::new(&ctx, &data_dir, &blocks_dir).unwrap();
-    let context = Arc::new(ctx);
-    let chainman = ChainstateManager::new(options, context).unwrap();
+    let _context = Arc::new(ctx);
+    let chainman = ChainstateManager::new(options).unwrap();
     println!("Chain state initialized");
-    let genesis = chainman.get_block_index_genesis();
-    let tip = chainman.get_block_index_tip().block_hash().hash;
+    let genesis = chainman.block_index_genesis();
+    let tip = chainman.block_index_tip().block_hash().hash;
     file.write_all(&tip).unwrap();
-    let mut current = chainman.get_next_block_index(genesis).unwrap();
+    let mut current = chainman.next_block_index(genesis).unwrap();
     loop {
         let block = chainman.read_block_data(&current).unwrap();
         let bytes: Vec<u8> = block.into();
@@ -52,7 +52,7 @@ fn main() {
         for offset in block_offsets {
             write_compact_size(offset, &mut file).expect("unexpected EOF");
         }
-        match chainman.get_next_block_index(current) {
+        match chainman.next_block_index(current) {
             Ok(next) => current = next,
             Err(KernelError::OutOfBounds) => break,
             Err(e) => panic!("{e}"),
