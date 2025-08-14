@@ -1,6 +1,6 @@
 use bitcoin::{
-    OutPoint,
     hashes::{sha256t, sha256t_tag},
+    OutPoint,
 };
 
 sha256t_tag! {
@@ -115,8 +115,8 @@ impl Default for Accumulator {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
+        secp256k1::rand::{thread_rng, RngCore},
         Txid,
-        secp256k1::rand::{RngCore, thread_rng},
     };
 
     use super::*;
@@ -167,13 +167,8 @@ mod tests {
     #[test]
     fn test_accumulator_is_zero() {
         let mut acc = Accumulator::default();
-        let [
-            outpoint_one,
-            outpoint_two,
-            outpoint_three,
-            outpoint_four,
-            outpoint_five,
-        ] = make_five_outpoint();
+        let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
+            make_five_outpoint();
         // Add the members
         acc.add(outpoint_one);
         acc.add(outpoint_two);
@@ -192,13 +187,8 @@ mod tests {
 
     #[test]
     fn test_same_state() {
-        let [
-            outpoint_one,
-            outpoint_two,
-            outpoint_three,
-            outpoint_four,
-            outpoint_five,
-        ] = make_five_outpoint();
+        let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
+            make_five_outpoint();
         let mut acc_ref = Accumulator::default();
         acc_ref.add(outpoint_two);
         acc_ref.add(outpoint_four);
@@ -217,13 +207,8 @@ mod tests {
 
     #[test]
     fn test_prehashing() {
-        let [
-            outpoint_one,
-            outpoint_two,
-            outpoint_three,
-            outpoint_four,
-            outpoint_five,
-        ] = make_five_outpoint();
+        let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
+            make_five_outpoint();
         let hash_one = hash_outpoint(outpoint_one);
         let hash_two = hash_outpoint(outpoint_two);
         let hash_three = hash_outpoint(outpoint_three);
