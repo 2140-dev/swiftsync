@@ -3,8 +3,10 @@ use std::{fs::File, io::Write, sync::Arc};
 use hintfile::write_compact_size;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder, KernelError};
 
+const CHAIN_TYPE: ChainType = ChainType::MAINNET;
+
 fn main() {
-    let mut file = File::create("./signet.hints").unwrap();
+    let mut file = File::create("./bitcoin.hints").unwrap();
 
     let mut args = std::env::args();
     let _ = args.next();
@@ -13,7 +15,7 @@ fn main() {
     blocks_dir.push_str("/blocks");
     println!("Initializing");
     let ctx = ContextBuilder::new()
-        .chain_type(ChainType::SIGNET)
+        .chain_type(CHAIN_TYPE)
         .build()
         .unwrap();
     let options = ChainstateManagerOptions::new(&ctx, &data_dir, &blocks_dir).unwrap();
