@@ -98,9 +98,6 @@ pub fn sync_block_headers(
             Err(_) => continue,
         };
         tracing::info!("Connection established");
-        if writer.send_message(NetworkMessage::GetAddr).is_err() {
-            continue;
-        }
         loop {
             let curr = chainman.best_header().block_hash().hash;
             let locator = BlockHash::from_byte_array(curr);
