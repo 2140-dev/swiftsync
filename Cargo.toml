@@ -1,7 +1,9 @@
 [workspace]
-members = ["accumulator", "hintfile", "network"]
+members = ["accumulator", "hintfile", "network", "node"]
 default-members = ["accumulator", "network"]
 resolver = "2"
 
 [workspace.dependencies]
 bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", default-features = false, rev = "16cc257c3695dea0e7301a5fa9cab44b8ed60598" }
+kernel = { package = "bitcoinkernel", git = "https://github.com/alexanderwiederin/rust-bitcoinkernel.git", rev = "353533221e3ba91d672418eab1ae7b83a61214f9" }
+p2p = { package = "bitcoin-p2p", git =  "https://github.com/2140-dev/bitcoin-p2p.git", rev = "2fc4345634b3cd4f5f55fe1e2381c76d13dec6e0" }

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcoin = { workspace = true }
-kernel = { package = "bitcoinkernel", git = "https://github.com/alexanderwiederin/rust-bitcoinkernel.git", rev = "b7b42d65a70f2c0e5fc8d1d024549bf857211046" }
+kernel = { workspace = true }
 
 [[bin]]
 name = "construct"
