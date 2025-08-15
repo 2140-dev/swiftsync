@@ -1,0 +1,18 @@
+[package]
+name = "node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+accumulator = { path = "../accumulator/" }
+bitcoin = { workspace = true }
+kernel = { workspace = true }
+hintfile = { path = "../hintfile/" }
+network = { path = "../network/" }
+p2p = { workspace = true }
+
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[[bin]]
+name = "ibd"
