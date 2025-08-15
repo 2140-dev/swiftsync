@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Write},
 };
 
-use bitcoin::{BlockHeight, BlockHeightInterval};
+use bitcoin::{consensus, BlockHash, BlockHeight, BlockHeightInterval};
 
 pub fn write_compact_size<W: Write>(value: u64, writer: &mut W) -> Result<(), io::Error> {
     match value {
@@ -45,6 +45,7 @@ pub fn read_compact_size<R: Read>(reader: &mut R) -> Result<u64, io::Error> {
 #[derive(Debug)]
 pub struct Hints {
     map: BTreeMap<BlockHeight, Vec<u64>>,
+    assume_valid: BlockHash,
 }
 
 impl Hints {
@@ -54,6 +55,9 @@ impl Hints {
     pub fn from_file<R: Read>(reader: &mut R) -> Self {
         let mut map = BTreeMap::new();
         let mut height = BlockHeight::from_u32(1);
+        let mut buf = [0; 32];
+        reader.read_exact(&mut buf).expect("empty file");
+        let assume_valid = consensus::deserialize::<BlockHash>(&buf).expect("empty file.");
         while let Ok(count) = read_compact_size(reader) {
             // panics on 32 bit machines
             let mut offsets = Vec::with_capacity(count as usize);
@@ -65,7 +69,12 @@ impl Hints {
                 .checked_add(BlockHeightInterval::from_u32(1))
                 .expect("hintfile absurdly large.")
         }
-        Self { map }
+        Self { map, assume_valid }
+    }
+
+    /// Get the last hash encoded in the hintfile.
+    pub fn stop_hash(&self) -> BlockHash {
+        self.assume_valid
     }
 
     /// # Panics
