@@ -3,7 +3,7 @@ use std::{fs::File, io::Write, sync::Arc};
 use hintfile::write_compact_size;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder, KernelError};
 
-const CHAIN_TYPE: ChainType = ChainType::MAINNET;
+const CHAIN_TYPE: ChainType = ChainType::SIGNET;
 
 fn main() {
     let mut file = File::create("./bitcoin.hints").unwrap();

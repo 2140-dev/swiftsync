@@ -3,3 +3,5 @@ Cargo.lock
 !justfile
 *.db
 *.hints
+/node/chainstate
+/node/blocks
