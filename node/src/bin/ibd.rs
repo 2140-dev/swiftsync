@@ -4,7 +4,7 @@ use bitcoin::Network;
 use hintfile::Hints;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
-use node::{bootstrap_dns, elapsed_time};
+use node::{bootstrap_dns, elapsed_time, sync_block_headers};
 
 const CHAIN_TYPE: ChainType = ChainType::SIGNET;
 const NETWORK: Network = Network::Signet;
@@ -12,9 +12,7 @@ const NETWORK: Network = Network::Signet;
 fn main() {
     let mut args = std::env::args();
     let _ = args.next();
-    let hint_path = args
-        .next()
-        .expect("Usage: <path_to_hints_file>");
+    let hint_path = args.next().expect("Usage: <path_to_hints_file>");
     // Logging
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber).unwrap();
@@ -41,4 +39,7 @@ fn main() {
     elapsed_time(kernel_start_time);
     let tip = chainman.best_header().height();
     tracing::info!("Kernel best header: {tip}");
+    let chain = Arc::new(chainman);
+    sync_block_headers(stop_hash, &peers, Arc::clone(&chain), NETWORK);
+    tracing::info!("Assume valid height: {}", chain.best_header().height());
 }
