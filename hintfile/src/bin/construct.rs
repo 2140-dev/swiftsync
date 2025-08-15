@@ -1,6 +1,5 @@
 use std::{fs::File, io::Write, sync::Arc};
 
-use bitcoin::{consensus, OutPoint};
 use hintfile::write_compact_size;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder, KernelError};
 
@@ -21,35 +20,32 @@ fn main() {
     let _context = Arc::new(ctx);
     let chainman = ChainstateManager::new(options).unwrap();
     println!("Chain state initialized");
-    let genesis = chainman.block_index_genesis();
+    // Writing the chain tip allows the client to know where to stop
     let tip = chainman.block_index_tip().block_hash().hash;
-    file.write_all(&tip).unwrap();
+    file.write_all(&tip).expect("file cannot be written to");
+
+    let genesis = chainman.block_index_genesis();
     let mut current = chainman.next_block_index(genesis).unwrap();
     loop {
         let block = chainman.read_block_data(&current).unwrap();
-        let bytes: Vec<u8> = block.into();
-        let block = consensus::deserialize::<bitcoin::Block>(&bytes).unwrap();
-        let (_, transactions) = block.into_parts();
-        println!("On block {}", current.height());
-        let mut delta: u64 = 0;
-        let mut block_offsets: Vec<u64> = Vec::new();
-        for tx in transactions {
-            let txid = tx.compute_txid();
-            for (index, _txout) in tx.outputs.iter().enumerate() {
-                let _outpoint = OutPoint {
-                    txid,
-                    vout: index as u32,
-                };
-                // if true
-                block_offsets.push(delta);
-                delta = 0;
+        println!("Block {} ...", current.height());
+        let mut block_unspents = Vec::new();
+        let mut curr = 0;
+        for i in 0..block.transaction_count() {
+            let transaction = block.transaction(i).unwrap();
+            for vout in 0..transaction.output_count() {
+                if chainman.have_coin(&transaction, vout) {
+                    println!("Found coin at offset {curr}");
+                    block_unspents.push(curr);
+                }
+                curr += 1;
             }
         }
+
         // Overflows 32 bit machines
-        let len_encode = block_offsets.len() as u64;
-        println!("Writing block offsets");
+        let len_encode = block_unspents.len() as u64;
         write_compact_size(len_encode, &mut file).expect("unexpected EOF");
-        for offset in block_offsets {
+        for offset in block_unspents {
             write_compact_size(offset, &mut file).expect("unexpected EOF");
         }
         match chainman.next_block_index(current) {
