@@ -262,5 +262,6 @@ mod tests {
         acc.update(AccumulatorUpdate::Spent(hash_three));
         acc.update(AccumulatorUpdate::Spent(hash_two));
         acc.update(AccumulatorUpdate::Spent(hash_one));
+        assert!(acc.is_zero());
     }
 }

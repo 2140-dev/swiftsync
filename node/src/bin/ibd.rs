@@ -1,13 +1,21 @@
-use std::{fs::File, sync::Arc, time::Instant};
+use std::{
+    fs::File,
+    sync::{mpsc::channel, Arc, Mutex},
+    time::Instant,
+};
 
 use bitcoin::Network;
 use hintfile::Hints;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
-use node::{bootstrap_dns, elapsed_time, sync_block_headers};
+use node::{
+    bootstrap_dns, elapsed_time, get_blocks_for_range, hashes_from_chain, sync_block_headers,
+    AccumulatorState,
+};
 
 const CHAIN_TYPE: ChainType = ChainType::SIGNET;
 const NETWORK: Network = Network::Signet;
+const TASKS: usize = 1024;
 
 fn main() {
     let mut args = std::env::args();
@@ -34,7 +42,6 @@ fn main() {
         .build()
         .unwrap();
     let options = ChainstateManagerOptions::new(&ctx, ".", "./blocks").unwrap();
-    let _context = Arc::new(ctx);
     let chainman = ChainstateManager::new(options).unwrap();
     elapsed_time(kernel_start_time);
     let tip = chainman.best_header().height();
@@ -42,4 +49,29 @@ fn main() {
     let chain = Arc::new(chainman);
     sync_block_headers(stop_hash, &peers, Arc::clone(&chain), NETWORK);
     tracing::info!("Assume valid height: {}", chain.best_header().height());
+    let (tx, rx) = channel();
+    let main_routine_time = Instant::now();
+    let mut accumulator_state = AccumulatorState::new(rx);
+    let acc_task = std::thread::spawn(move || accumulator_state.verify());
+    let peers = Arc::new(Mutex::new(peers));
+    let mut tasks = Vec::new();
+    let chunk_size = chain.best_header().height() as usize / TASKS;
+    let hashes = hashes_from_chain(Arc::clone(&chain), chunk_size);
+    for (task_id, chunk) in hashes.into_iter().enumerate() {
+        let chain = Arc::clone(&chain);
+        let tx = tx.clone();
+        let peers = Arc::clone(&peers);
+        let hints = Arc::clone(&hints);
+        let block_task = std::thread::spawn(move || {
+            get_blocks_for_range(task_id as u32, NETWORK, chain, &hints, peers, tx, chunk)
+        });
+        tasks.push(block_task);
+    }
+    for task in tasks {
+        task.join().unwrap();
+    }
+    drop(tx);
+    let acc_result = acc_task.join().unwrap();
+    tracing::info!("Verified: {acc_result}");
+    elapsed_time(main_routine_time);
 }
