@@ -1,0 +1,5 @@
+ibd:
+  cargo run --bin ibd ./bitcoin.hints --release
+
+delete:
+  rm -rf blocks chainstate blockfiles

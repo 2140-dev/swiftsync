@@ -34,6 +34,13 @@ fn split_in_half(a: [u8; 32]) -> ([u8; 16], [u8; 16]) {
     (high, low)
 }
 
+/// Update an accumulator by adding or spending a pre-hashed outpoint
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccumulatorUpdate {
+    Add([u8; 32]),
+    Spent([u8; 32]),
+}
+
 impl Accumulator {
     /// The zero accumulator
     pub const ZERO: Accumulator = Accumulator { high: 0, low: 0 };
@@ -57,6 +64,14 @@ impl Accumulator {
         let (big, little) = Self::create_rhs(hash);
         let (high, low) = Self::add_internal(self.high, self.low, big, little);
         *self = Self { high, low };
+    }
+
+    /// Update the accumulator
+    pub fn update(&mut self, update: AccumulatorUpdate) {
+        match update {
+            AccumulatorUpdate::Add(added) => self.add_hashed_outpoint(added),
+            AccumulatorUpdate::Spent(spent) => self.spend_hashed_outpoint(spent),
+        }
     }
 
     /// Spend the inputs in a block by subtracing them from the accumulator.
@@ -225,5 +240,28 @@ mod tests {
         acc.spend_hashed_outpoint(hash_one);
         acc.spend_hashed_outpoint(hash_two);
         acc.spend_hashed_outpoint(hash_three);
+    }
+
+    #[test]
+    fn test_update_method() {
+        let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
+            make_five_outpoint();
+        let hash_one = hash_outpoint(outpoint_one);
+        let hash_two = hash_outpoint(outpoint_two);
+        let hash_three = hash_outpoint(outpoint_three);
+        let hash_four = hash_outpoint(outpoint_four);
+        let hash_five = hash_outpoint(outpoint_five);
+        let mut acc = Accumulator::default();
+        acc.update(AccumulatorUpdate::Add(hash_one));
+        acc.update(AccumulatorUpdate::Add(hash_two));
+        acc.update(AccumulatorUpdate::Add(hash_three));
+        acc.update(AccumulatorUpdate::Add(hash_four));
+        acc.update(AccumulatorUpdate::Add(hash_five));
+        acc.update(AccumulatorUpdate::Spent(hash_five));
+        acc.update(AccumulatorUpdate::Spent(hash_four));
+        acc.update(AccumulatorUpdate::Spent(hash_three));
+        acc.update(AccumulatorUpdate::Spent(hash_two));
+        acc.update(AccumulatorUpdate::Spent(hash_one));
+        assert!(acc.is_zero());
     }
 }

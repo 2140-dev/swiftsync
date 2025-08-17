@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use peers::dns::DnsQuery;
+use network::dns::DnsQuery;
 
 #[tokio::test]
 #[cfg(feature = "tokio")]
