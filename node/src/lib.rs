@@ -1,8 +1,14 @@
 use std::{
-    collections::HashSet, net::SocketAddr, sync::{
+    collections::HashSet,
+    fs::File,
+    io::Write,
+    net::SocketAddr,
+    path::Path,
+    sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
-    }, time::{Duration, Instant}
+    },
+    time::{Duration, Instant},
 };
 
 use accumulator::{Accumulator, AccumulatorUpdate};
@@ -144,9 +150,11 @@ pub fn sync_block_headers(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_blocks_for_range(
     task_id: u32,
     network: Network,
+    block_dir: &Path,
     chain: Arc<ChainstateManager>,
     hints: &Hints,
     peers: Arc<Mutex<Vec<SocketAddr>>>,
@@ -165,7 +173,7 @@ pub fn get_blocks_for_range(
             socket_addr
         };
         let Some(peer) = peer else { continue };
-        tracing::info!("Connecting to {peer}");
+        // tracing::info!("Connecting to {peer}");
         let conn = ConnectionConfig::new()
             .change_network(network)
             .request_addr()
@@ -173,12 +181,12 @@ pub fn get_blocks_for_range(
             .decrease_version_requirement(ProtocolVersion::BIP0031_VERSION)
             .open_connection(peer, timeout);
         let Ok((writer, mut reader, metrics)) = conn else {
-            tracing::warn!("Connection failed");
+            // tracing::warn!("Connection failed");
             continue;
         };
-        tracing::info!("Connection successful");
+        // tracing::info!("Connection successful");
         let payload = InventoryPayload(batch.iter().map(|hash| Inventory::Block(*hash)).collect());
-        tracing::info!("Requesting {} blocks", payload.0.len());
+        // tracing::info!("Requesting {} blocks", payload.0.len());
         let getdata = NetworkMessage::GetData(payload);
         if writer.send_message(getdata).is_err() {
             continue;
@@ -189,8 +197,7 @@ pub fn get_blocks_for_range(
                     let _ = writer.send_message(NetworkMessage::Pong(nonce));
                 }
                 NetworkMessage::Block(block) => {
-                    let (header, transactions) = block.into_parts();
-                    let hash = header.block_hash();
+                    let hash = block.block_hash();
                     batch.retain(|b| hash.ne(b));
                     let kernal_hash: kernel::BlockHash = kernel::BlockHash {
                         hash: hash.to_byte_array(),
@@ -199,8 +206,16 @@ pub fn get_blocks_for_range(
                         .block_index_by_hash(kernal_hash)
                         .expect("header is in best chain.");
                     let block_height = BlockHeight::from_u32(height.height().unsigned_abs());
-                    let unspent_indexes: HashSet<u64> = hints.get_block_offsets(block_height).into_iter().collect();
-                    tracing::info!("{task_id} -> {block_height}:{hash}");
+                    let unspent_indexes: HashSet<u64> =
+                        hints.get_block_offsets(block_height).into_iter().collect();
+                    // tracing::info!("{task_id} -> {block_height}:{hash}");
+                    let file_path = block_dir.join(format!("{hash}.block"));
+                    let mut file = File::create_new(file_path).expect("duplicate block file");
+                    let block_bytes = consensus::serialize(&block);
+                    file.write_all(&block_bytes)
+                        .expect("failed to write block file");
+                    // tracing::info!("Wrote {hash} to file");
+                    let (_, transactions) = block.into_parts();
                     let mut output_index = 0;
                     for transaction in transactions {
                         let tx_hash = transaction.compute_txid();
@@ -231,6 +246,7 @@ pub fn get_blocks_for_range(
                             output_index += 1
                         }
                     }
+
                     if batch.is_empty() {
                         tracing::info!("All block ranges fetched: {task_id}");
                         return;
@@ -246,7 +262,7 @@ pub fn get_blocks_for_range(
                             })
                             .map(|(_, addr)| addr)
                             .collect();
-                        tracing::info!("Adding {} peers", addrs.len());
+                        // tracing::info!("Adding {} peers", addrs.len());
                         lock.extend(addrs);
                     }
                 }

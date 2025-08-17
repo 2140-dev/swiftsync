@@ -5,3 +5,4 @@ Cargo.lock
 *.hints
 /node/chainstate
 /node/blocks
+/node/blockfiles

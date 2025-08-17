@@ -1,5 +1,6 @@
 use std::{
     fs::File,
+    path::Path,
     sync::{mpsc::channel, Arc, Mutex},
     time::Instant,
 };
@@ -15,7 +16,8 @@ use node::{
 
 const CHAIN_TYPE: ChainType = ChainType::SIGNET;
 const NETWORK: Network = Network::Signet;
-const TASKS: usize = 1024;
+const TASKS: usize = 256;
+const BLOCK_FILE_PATH: &str = "./blockfiles";
 
 fn main() {
     let mut args = std::env::args();
@@ -29,6 +31,8 @@ fn main() {
     let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
     let hints = Arc::new(Hints::from_file(&mut hintfile));
     elapsed_time(hintfile_start_time);
+    let block_file_path = Path::new(BLOCK_FILE_PATH);
+    std::fs::create_dir(block_file_path).expect("could not create block file directory");
     let stop_hash = hints.stop_hash();
     tracing::info!("Assume valid hash: {stop_hash}");
     tracing::info!("Finding peers with DNS");
@@ -63,12 +67,23 @@ fn main() {
         let peers = Arc::clone(&peers);
         let hints = Arc::clone(&hints);
         let block_task = std::thread::spawn(move || {
-            get_blocks_for_range(task_id as u32, NETWORK, chain, &hints, peers, tx, chunk)
+            get_blocks_for_range(
+                task_id as u32,
+                NETWORK,
+                block_file_path,
+                chain,
+                &hints,
+                peers,
+                tx,
+                chunk,
+            )
         });
         tasks.push(block_task);
     }
     for task in tasks {
-        task.join().unwrap();
+        if let Err(e) = task.join() {
+            tracing::warn!("{:?}", e.downcast::<String>());
+        }
     }
     drop(tx);
     let acc_result = acc_task.join().unwrap();
