@@ -20,7 +20,7 @@ use bitcoin::{
     BlockHash, Network, OutPoint,
 };
 use hintfile::Hints;
-use kernel::ChainstateManager;
+use kernel::{ChainType, ChainstateManager};
 use network::dns::DnsQuery;
 use p2p::{
     handshake::ConnectionConfig,
@@ -79,6 +79,7 @@ pub fn sync_block_headers(
     hosts: &[SocketAddr],
     chainman: Arc<ChainstateManager>,
     network: Network,
+    timeout_params: TimeoutParams,
 ) {
     let mut rng = thread_rng();
     let then = Instant::now();
@@ -89,13 +90,10 @@ pub fn sync_block_headers(
             .copied()
             .expect("dns must return at least one peer");
         tracing::info!("Attempting connection to {random}");
-        let mut timeout_conf = TimeoutParams::new();
-        timeout_conf.read_timeout(Duration::from_secs(2));
-        timeout_conf.write_timeout(Duration::from_secs(2));
         let conn = ConnectionConfig::new()
             .change_network(network)
             .decrease_version_requirement(ProtocolVersion::BIP0031_VERSION)
-            .open_connection(random, timeout_conf);
+            .open_connection(random, timeout_params);
         let (writer, mut reader, metrics) = match conn {
             Ok((writer, reader, metrics)) => (writer, reader, metrics),
             Err(_) => continue,
@@ -153,6 +151,8 @@ pub fn sync_block_headers(
 #[allow(clippy::too_many_arguments)]
 pub fn get_blocks_for_range(
     task_id: u32,
+    timeout_params: TimeoutParams,
+    ping_timeout: Duration,
     network: Network,
     block_dir: &Path,
     chain: Arc<ChainstateManager>,
@@ -161,10 +161,6 @@ pub fn get_blocks_for_range(
     updater: Sender<AccumulatorUpdate>,
     mut batch: Vec<BlockHash>,
 ) {
-    let mut timeout = TimeoutParams::new();
-    timeout.read_timeout(Duration::from_secs(2));
-    timeout.tcp_handshake_timeout(Duration::from_secs(2));
-    timeout.ping_interval(Duration::from_secs(15));
     let mut rng = thread_rng();
     loop {
         let peer = {
@@ -179,7 +175,7 @@ pub fn get_blocks_for_range(
             .request_addr()
             .set_service_requirement(ServiceFlags::NETWORK)
             .decrease_version_requirement(ProtocolVersion::BIP0031_VERSION)
-            .open_connection(peer, timeout);
+            .open_connection(peer, timeout_params);
         let Ok((writer, mut reader, metrics)) = conn else {
             // tracing::warn!("Connection failed");
             continue;
@@ -269,7 +265,7 @@ pub fn get_blocks_for_range(
                 _ => (),
             }
             if let Some(message_rate) = metrics.message_rate(TimedMessage::Block) {
-                if message_rate.total_count() < 2 {
+                if message_rate.total_count() < 100 {
                     continue;
                 }
                 let Some(rate) = message_rate.messages_per_secs(Instant::now()) else {
@@ -279,6 +275,10 @@ pub fn get_blocks_for_range(
                     tracing::warn!("Disconnecting from {task_id} for stalling");
                     break;
                 }
+            }
+            if metrics.ping_timed_out(ping_timeout) {
+                tracing::info!("{task_id} failed to respond to a ping");
+                break;
             }
         }
         if batch.is_empty() {
@@ -303,4 +303,18 @@ pub fn hashes_from_chain(chain: Arc<ChainstateManager>, chunks: usize) -> Vec<Ve
         curr = next;
     }
     hashes.chunks(chunks).map(|slice| slice.to_vec()).collect()
+}
+
+pub trait ChainExt {
+    fn chain_type(&self) -> ChainType;
+}
+
+impl ChainExt for Network {
+    fn chain_type(&self) -> ChainType {
+        match self {
+            Network::Bitcoin => ChainType::MAINNET,
+            Network::Signet => ChainType::SIGNET,
+            _ => unimplemented!("choose bitcoin or signet"),
+        }
+    }
 }

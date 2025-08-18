@@ -2,6 +2,7 @@
 name = "node"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 accumulator = { path = "../accumulator/" }
@@ -11,8 +12,15 @@ hintfile = { path = "../hintfile/" }
 network = { path = "../network/" }
 p2p = { workspace = true }
 
+configure_me = "0.4.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+
+[build-dependencies]
+configure_me_codegen = "0.4.0"
+
+[package.metadata.configure_me]
+spec = "config_spec.toml"
 
 [[bin]]
 name = "ibd"
