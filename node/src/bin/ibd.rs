@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use bitcoin::Network;
+use bitcoin::{consensus, BlockHash, Network};
 use hintfile::Hints;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
@@ -33,7 +33,8 @@ fn main() {
     elapsed_time(hintfile_start_time);
     let block_file_path = Path::new(BLOCK_FILE_PATH);
     std::fs::create_dir(block_file_path).expect("could not create block file directory");
-    let stop_hash = hints.stop_hash();
+    let stop_hash =
+        consensus::deserialize::<BlockHash>(&hints.stop_hash()).expect("stop hash is not valid");
     tracing::info!("Assume valid hash: {stop_hash}");
     tracing::info!("Finding peers with DNS");
     let dns_start_time = Instant::now();
