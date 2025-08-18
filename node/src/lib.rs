@@ -17,7 +17,7 @@ use bitcoin::{
     key::rand::{seq::SliceRandom, thread_rng},
     script::ScriptExt,
     transaction::TransactionExt,
-    BlockHash, BlockHeight, Network, OutPoint,
+    BlockHash, Network, OutPoint,
 };
 use hintfile::Hints;
 use kernel::ChainstateManager;
@@ -202,10 +202,10 @@ pub fn get_blocks_for_range(
                     let kernal_hash: kernel::BlockHash = kernel::BlockHash {
                         hash: hash.to_byte_array(),
                     };
-                    let height = chain
+                    let block_index = chain
                         .block_index_by_hash(kernal_hash)
                         .expect("header is in best chain.");
-                    let block_height = BlockHeight::from_u32(height.height().unsigned_abs());
+                    let block_height = block_index.height().unsigned_abs();
                     let unspent_indexes: HashSet<u64> =
                         hints.get_block_offsets(block_height).into_iter().collect();
                     // tracing::info!("{task_id} -> {block_height}:{hash}");
