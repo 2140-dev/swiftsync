@@ -19,7 +19,7 @@ doc = "The bitcoin network to operate on. Default `bitcoin`. Options are `bitcoi
 [[param]]
 name = "ping_timeout"
 type = "u64"
-default = "15"
+default = "60"
 doc = "The time (seconds) a peer has to respond to a `ping` message. Pings are sent aggressively throughout IBD to find slow peers."
 
 [[param]]
@@ -43,11 +43,11 @@ doc = "The maximum time (seconds) to write to a TCP stream until the connection 
 [[param]]
 name = "min_blocks_per_sec"
 type = "f64"
-default = "1."
+default = "3."
 doc = "The minimum rate a peer has to respond to block requests."
 
 [[param]]
 name = "tasks"
 type = "usize"
-default = "64"
+default = "32"
 doc = "The number of tasks to download blocks. Default is 64. Each task uses two OS threads."

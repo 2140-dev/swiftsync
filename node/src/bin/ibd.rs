@@ -15,7 +15,7 @@ use node::{
 };
 use p2p::net::TimeoutParams;
 
-const PING_INTERVAL: Duration = Duration::from_secs(15);
+const PING_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 configure_me::include_config!();
 
@@ -74,8 +74,7 @@ fn main() {
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();
-    let chunk_size = chain.best_header().height() as usize / task_num;
-    let hashes = hashes_from_chain(Arc::clone(&chain), chunk_size);
+    let hashes = hashes_from_chain(Arc::clone(&chain), task_num);
     for (task_id, chunk) in hashes.into_iter().enumerate() {
         let chain = Arc::clone(&chain);
         let tx = tx.clone();
