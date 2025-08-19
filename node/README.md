@@ -9,21 +9,26 @@ To start fast IBD:
 cargo run --bin ibd --release -- <args>
 ```
 
-
 ```
 Arguments:
-        --hintfile         The path to your `bitcoin.hints` file that will be
-                           used for IBD
-        --blocks-dir       Directory where you would like to store the bitcoin
-                           blocks
-        --network          The bitcoin network to operate on. Options are `
-                           bitcoin` or `signet`
-        --ping-timeout     The time a peer has to respond to a `ping` message.
-                           Pings are sent aggressively throughout IBD to find
-                           slow peers.
-        --tcp-timeout      The maximum time to establish a connection
-        --read-timeout     The maximum time to read from a TCP stream until the
-                           connection is killed.
-        --write-timeout    The maximum time to write to a TCP stream until the
-                           connection is killed.
+
+        --hintfile              The path to your `bitcoin.hints` file that will
+                                be used for IBD. Default is `./bitcoin.hints
+        --blocks-dir            Directory where you would like to store the
+                                bitcoin blocks. Default `./blockfiles`
+        --network               The bitcoin network to operate on. Default `
+                                bitcoin`. Options are `bitcoin` or `signet`
+        --ping-timeout          The time (seconds) a peer has to respond to a `
+                                ping` message. Pings are sent aggressively
+                                throughout IBD to find slow peers.
+        --tcp-timeout           The maximum time (seconds) to establish a
+                                connection
+        --read-timeout          The maximum time (seconds) to read from a TCP
+                                stream until the connection is killed.
+        --write-timeout         The maximum time (seconds) to write to a TCP
+                                stream until the connection is killed.
+        --min-blocks-per-sec    The minimum rate a peer has to respond to block
+                                requests.
+        --tasks                 The number of tasks to download blocks. Default
+                                is 64. Each task uses two OS threads.
 ```

@@ -2,40 +2,52 @@
 name = "hintfile"
 type = "String"
 default = "\"./bitcoin.hints\".into()"
-doc = "The path to your `bitcoin.hints` file that will be used for IBD"
+doc = "The path to your `bitcoin.hints` file that will be used for IBD. Default is `./bitcoin.hints"
 
 [[param]]
 name = "blocks_dir"
 type = "String"
 default = "\"./blockfiles\".into()"
-doc = "Directory where you would like to store the bitcoin blocks"
+doc = "Directory where you would like to store the bitcoin blocks. Default `./blockfiles`"
 
 [[param]]
 name = "network"
 type = "String"
 default = "\"bitcoin\".into()"
-doc = "The bitcoin network to operate on. Options are `bitcoin` or `signet`"
+doc = "The bitcoin network to operate on. Default `bitcoin`. Options are `bitcoin` or `signet`"
 
 [[param]]
 name = "ping_timeout"
 type = "u64"
 default = "15"
-doc = "The time a peer has to respond to a `ping` message. Pings are sent aggressively throughout IBD to find slow peers."
+doc = "The time (seconds) a peer has to respond to a `ping` message. Pings are sent aggressively throughout IBD to find slow peers."
 
 [[param]]
 name = "tcp_timeout"
 type = "u64"
 default = "2"
-doc = "The maximum time to establish a connection"
+doc = "The maximum time (seconds) to establish a connection"
 
 [[param]]
 name = "read_timeout"
 type = "u64"
 default = "2"
-doc = "The maximum time to read from a TCP stream until the connection is killed."
+doc = "The maximum time (seconds) to read from a TCP stream until the connection is killed."
 
 [[param]]
 name = "write_timeout"
 type = "u64"
 default = "2"
-doc = "The maximum time to write to a TCP stream until the connection is killed."
+doc = "The maximum time (seconds) to write to a TCP stream until the connection is killed."
+
+[[param]]
+name = "min_blocks_per_sec"
+type = "f64"
+default = "1."
+doc = "The minimum rate a peer has to respond to block requests."
+
+[[param]]
+name = "tasks"
+type = "usize"
+default = "64"
+doc = "The number of tasks to download blocks. Default is 64. Each task uses two OS threads."
