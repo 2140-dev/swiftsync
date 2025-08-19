@@ -15,7 +15,6 @@ use node::{
 };
 use p2p::net::TimeoutParams;
 
-const TASKS: usize = 256;
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
 configure_me::include_config!();
@@ -29,6 +28,8 @@ fn main() {
         .parse::<Network>()
         .expect("invalid network string");
     let ping_timeout = Duration::from_secs(config.ping_timeout);
+    let block_per_sec = config.min_blocks_per_sec;
+    let task_num = config.tasks;
     let tcp_timeout = Duration::from_secs(config.tcp_timeout);
     let read_timeout = Duration::from_secs(config.read_timeout);
     let write_timeout = Duration::from_secs(config.write_timeout);
@@ -73,7 +74,7 @@ fn main() {
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();
-    let chunk_size = chain.best_header().height() as usize / TASKS;
+    let chunk_size = chain.best_header().height() as usize / task_num;
     let hashes = hashes_from_chain(Arc::clone(&chain), chunk_size);
     for (task_id, chunk) in hashes.into_iter().enumerate() {
         let chain = Arc::clone(&chain);
@@ -85,6 +86,7 @@ fn main() {
             get_blocks_for_range(
                 task_id as u32,
                 timeout_conf,
+                block_per_sec,
                 ping_timeout,
                 network,
                 &block_file_path,

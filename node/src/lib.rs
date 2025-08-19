@@ -152,6 +152,7 @@ pub fn sync_block_headers(
 pub fn get_blocks_for_range(
     task_id: u32,
     timeout_params: TimeoutParams,
+    blocks_per_sec: f64,
     ping_timeout: Duration,
     network: Network,
     block_dir: &Path,
@@ -271,7 +272,7 @@ pub fn get_blocks_for_range(
                 let Some(rate) = message_rate.messages_per_secs(Instant::now()) else {
                     continue;
                 };
-                if rate < 2. {
+                if rate < blocks_per_sec {
                     tracing::warn!("Disconnecting from {task_id} for stalling");
                     break;
                 }
