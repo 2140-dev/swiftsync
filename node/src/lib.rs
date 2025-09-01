@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::Write,
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::{
         mpsc::{Receiver, Sender},
@@ -21,8 +21,8 @@ use bitcoin::{
 };
 use hintfile::Hints;
 use kernel::{ChainType, ChainstateManager};
-use network::dns::DnsQuery;
 use p2p::{
+    dns::DnsQueryExt,
     handshake::ConnectionConfig,
     net::{ConnectionExt, TimeoutParams},
     p2p::{
@@ -30,7 +30,7 @@ use p2p::{
         message_blockdata::{GetHeadersMessage, Inventory},
         NetworkExt, ProtocolVersion, ServiceFlags,
     },
-    SeedsExt, TimedMessage,
+    TimedMessage,
 };
 
 const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::WTXID_RELAY_VERSION;
@@ -64,14 +64,11 @@ impl AccumulatorState {
 }
 
 pub fn bootstrap_dns(network: Network) -> Vec<SocketAddr> {
-    let mut all_hosts = Vec::new();
-    for seed in network.seeds() {
-        let hosts = DnsQuery::new_cloudflare(seed).lookup().unwrap_or_default();
-        all_hosts.extend_from_slice(&hosts);
-    }
-    all_hosts
+    let cloudflare = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53);
+    network
+        .query_dns_seeds(cloudflare)
         .into_iter()
-        .map(|host| SocketAddr::new(host, network.default_p2p_port()))
+        .map(|ip| SocketAddr::new(ip, network.default_p2p_port()))
         .collect()
 }
 
