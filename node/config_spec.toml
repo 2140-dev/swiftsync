@@ -8,7 +8,7 @@ doc = "The path to your `bitcoin.hints` file that will be used for IBD. Default 
 name = "blocks_dir"
 type = "String"
 default = "\"./blockfiles\".into()"
-doc = "Directory where you would like to store the bitcoin blocks. Default `./blockfiles`"
+doc = "Temporary directory where you would like to store the bitcoin blocks. Default `./blockfiles`"
 
 [[param]]
 name = "network"

@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     path::PathBuf,
+    str::FromStr,
     sync::{mpsc::channel, Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -10,8 +11,8 @@ use hintfile::Hints;
 use kernel::{ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
 use node::{
-    bootstrap_dns, elapsed_time, get_blocks_for_range, hashes_from_chain, sync_block_headers,
-    AccumulatorState, ChainExt,
+    bootstrap_dns, elapsed_time, emit_hashes_in_order, get_blocks_for_range, hashes_from_chain,
+    migrate_blocks, setup_validation_interface, sync_block_headers, AccumulatorState, ChainExt,
 };
 use p2p::net::TimeoutParams;
 
@@ -20,9 +21,14 @@ const PING_INTERVAL: Duration = Duration::from_secs(10 * 60);
 configure_me::include_config!();
 
 fn main() {
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
     let (config, _) = Config::including_optional_config_files::<&[&str]>(&[]).unwrap_or_exit();
     let hint_path = config.hintfile;
     let blocks_dir = config.blocks_dir;
+    let home_var = std::env::var("HOME").unwrap();
+    let home_dir = PathBuf::from_str(&home_var).unwrap();
+    let bitcoind_dir = home_dir.join(".bitcoin");
     let network = config
         .network
         .parse::<Network>()
@@ -38,8 +44,6 @@ fn main() {
     timeout_conf.write_timeout(write_timeout);
     timeout_conf.tcp_handshake_timeout(tcp_timeout);
     timeout_conf.ping_interval(PING_INTERVAL);
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
     let hintfile_start_time = Instant::now();
     tracing::info!("Reading in {hint_path}");
     let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
@@ -58,9 +62,16 @@ fn main() {
     let kernel_start_time = Instant::now();
     let ctx = ContextBuilder::new()
         .chain_type(network.chain_type())
+        .validation_interface(setup_validation_interface())
         .build()
         .unwrap();
-    let options = ChainstateManagerOptions::new(&ctx, ".", "./blocks").unwrap();
+    let bitcoind_block_dir = bitcoind_dir.join("blocks");
+    let options = ChainstateManagerOptions::new(
+        &ctx,
+        bitcoind_dir.to_str().unwrap(),
+        bitcoind_block_dir.to_str().unwrap(),
+    )
+    .unwrap();
     let chainman = ChainstateManager::new(options).unwrap();
     elapsed_time(kernel_start_time);
     let tip = chainman.best_header().height();
@@ -74,7 +85,12 @@ fn main() {
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();
-    let hashes = hashes_from_chain(Arc::clone(&chain), task_num);
+    let hashes = if matches!(network, Network::Bitcoin) {
+        hashes_from_chain(Arc::clone(&chain), task_num)
+    } else {
+        let hashes = emit_hashes_in_order(Arc::clone(&chain)).collect::<Vec<BlockHash>>();
+        hashes.chunks(10_000).map(|slice| slice.to_vec()).collect()
+    };
     for (task_id, chunk) in hashes.into_iter().enumerate() {
         let chain = Arc::clone(&chain);
         let tx = tx.clone();
@@ -107,4 +123,6 @@ fn main() {
     let acc_result = acc_task.join().unwrap();
     tracing::info!("Verified: {acc_result}");
     elapsed_time(main_routine_time);
+    tracing::info!("Migrating blocks to Bitcoin Core");
+    migrate_blocks(chain, &block_file_path);
 }

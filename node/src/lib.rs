@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     fs::File,
-    io::Write,
+    io::{Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::{
@@ -198,7 +198,12 @@ pub fn get_blocks_for_range(
             continue;
         };
         // tracing::info!("Connection successful");
-        let payload = InventoryPayload(batch.iter().map(|hash| Inventory::Block(*hash)).collect());
+        let payload = InventoryPayload(
+            batch
+                .iter()
+                .map(|hash| Inventory::WitnessBlock(*hash))
+                .collect(),
+        );
         // tracing::info!("Requesting {} blocks", payload.0.len());
         let getdata = NetworkMessage::GetData(payload);
         if writer.send_message(getdata).is_err() {
@@ -232,9 +237,12 @@ pub fn get_blocks_for_range(
                             panic!("files cannot conflict");
                         }
                     };
-                    let block_bytes = consensus::serialize(&block);
+                    let block_bytes = consensus::encode::serialize(&block);
                     file.write_all(&block_bytes)
                         .expect("failed to write block file");
+                    file.flush().expect("failed to flush entire block to disk");
+                    file.sync_all().expect("file failed to sync with the OS");
+                    drop(file);
                     // tracing::info!("Wrote {hash} to file");
                     let (_, transactions) = block.into_parts();
                     let mut output_index = 0;
@@ -359,6 +367,73 @@ pub fn hashes_from_chain(chain: Arc<ChainstateManager>, jobs: usize) -> Vec<Vec<
         .collect();
     out.extend(rest);
     out
+}
+
+pub fn emit_hashes_in_order(chain: Arc<ChainstateManager>) -> impl Iterator<Item = BlockHash> {
+    let height = chain.best_header().height();
+    let mut hashes = Vec::with_capacity(height as usize);
+    let mut curr = chain.best_header();
+    let tip_hash = BlockHash::from_byte_array(curr.block_hash().hash);
+    hashes.push(tip_hash);
+    while let Ok(next) = curr.prev() {
+        if next.height() == 0 {
+            break;
+        }
+        let hash = BlockHash::from_byte_array(next.block_hash().hash);
+        hashes.push(hash);
+        curr = next;
+    }
+    hashes.into_iter().rev()
+}
+
+pub fn migrate_blocks(chain: Arc<ChainstateManager>, block_dir: &Path) {
+    let start = Instant::now();
+    for (i, hash) in emit_hashes_in_order(Arc::clone(&chain)).enumerate() {
+        let file_path = block_dir.join(format!("{hash}.block"));
+        let mut file =
+            File::open(&file_path).expect("block file not present. did IBD complete successfully?");
+        let mut block_bytes = Vec::new();
+        file.read_to_end(&mut block_bytes)
+            .expect("unexpected error parsing block file");
+        let block =
+            kernel::Block::try_from(block_bytes.as_slice()).expect("invalid block serialization");
+        let (accepted, _) = chain.process_block(&block);
+        if !accepted {
+            tracing::warn!("{hash} was rejected");
+            panic!("could not migrate blocks");
+        }
+        drop(file);
+        if let Err(e) = std::fs::remove_file(file_path) {
+            tracing::warn!("Could not remove block file {e}");
+        }
+        if i % 100 == 0 {
+            tracing::info!("{i}th block migrated");
+            elapsed_time(start);
+        }
+    }
+}
+
+pub fn setup_validation_interface() -> Box<kernel::ValidationInterfaceCallbacks> {
+    Box::new(kernel::ValidationInterfaceCallbacks {
+        block_checked: Box::new(move |_block, _mode, result| match result {
+            kernel::BlockValidationResult::MUTATED => tracing::warn!("Received mutated block"),
+            kernel::BlockValidationResult::CONSENSUS => tracing::warn!("Invalid consensus"),
+            kernel::BlockValidationResult::CACHED_INVALID => tracing::warn!("Cached as invalid"),
+            kernel::BlockValidationResult::INVALID_HEADER => {
+                tracing::warn!("Block header is malformed")
+            }
+            kernel::BlockValidationResult::TIME_FUTURE => tracing::warn!("Invalid timestamp"),
+            kernel::BlockValidationResult::MISSING_PREV => tracing::warn!("Missing previous block"),
+            kernel::BlockValidationResult::HEADER_LOW_WORK => {
+                tracing::warn!("Header has too-low work")
+            }
+            kernel::BlockValidationResult::INVALID_PREV => {
+                tracing::warn!("Invalid previous block hash")
+            }
+            // Result is unset (not rejected)
+            _ => (),
+        }),
+    })
 }
 
 pub trait ChainExt {
