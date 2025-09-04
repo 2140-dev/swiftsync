@@ -1,0 +1,17 @@
+[[param]]
+name = "name"
+type = "String"
+default = "\"./bitcoin.hints\".into()"
+doc = "The path to the .hints file you would like to create. Default is `./bitcoin.hints`"
+
+[[param]]
+name = "bitcoin_dir"
+type = "String"
+default = "\"~/.bitcoin\".into()"
+doc = "The directory of your `bitcoind` data"
+
+[[param]]
+name = "network"
+type = "String"
+default = "\"bitcoin\".into()"
+doc = "The bitcoin network to operate on. Default `bitcoin`. Options are `bitcoin` or `signet`"

@@ -1,25 +1,36 @@
-use std::{fs::File, io::Write, sync::Arc};
+use std::{fs::File, io::Write, path::PathBuf, str::FromStr};
 
 use hintfile::write_compact_size;
 use kernel::{ChainType, ChainstateManager, ChainstateManagerOptions, ContextBuilder, KernelError};
 
-const CHAIN_TYPE: ChainType = ChainType::SIGNET;
+configure_me::include_config!();
+
+fn chain_type_from_string(network: String) -> ChainType {
+    match network.to_lowercase().as_ref() {
+        "bitcoin" => ChainType::MAINNET,
+        "signet" => ChainType::SIGNET,
+        _ => panic!("supported chains are `bitcoin` or `signet`"),
+    }
+}
 
 fn main() {
-    let mut file = File::create("./bitcoin.hints").unwrap();
-
-    let mut args = std::env::args();
-    let _ = args.next();
-    let data_dir = args.next().expect("Usage: <path_to_bitcoin_dir>");
-    let mut blocks_dir = data_dir.clone();
-    blocks_dir.push_str("/blocks");
+    let (config, _) = Config::including_optional_config_files::<&[&str]>(&[]).unwrap_or_exit();
+    let chain_type = chain_type_from_string(config.network);
+    let hintfile_path = PathBuf::from_str(&config.name).unwrap();
+    let bitcoind = PathBuf::from_str(&config.bitcoin_dir).unwrap();
+    let blocks_dir = bitcoind.join("blocks");
+    let mut file = File::create(hintfile_path).unwrap();
     println!("Initializing");
     let ctx = ContextBuilder::new()
-        .chain_type(CHAIN_TYPE)
+        .chain_type(chain_type)
         .build()
         .unwrap();
-    let options = ChainstateManagerOptions::new(&ctx, &data_dir, &blocks_dir).unwrap();
-    let _context = Arc::new(ctx);
+    let options = ChainstateManagerOptions::new(
+        &ctx,
+        bitcoind.to_str().unwrap(),
+        blocks_dir.to_str().unwrap(),
+    )
+    .unwrap();
     let chainman = ChainstateManager::new(options).unwrap();
     println!("Chain state initialized");
     // Writing the chain tip allows the client to know where to stop
@@ -39,6 +50,7 @@ fn main() {
                 if chainman.have_coin(&transaction, vout) {
                     println!("Found coin at offset {curr}");
                     block_unspents.push(curr);
+                    curr = 0;
                 }
                 curr += 1;
             }
