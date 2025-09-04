@@ -50,6 +50,7 @@ fn main() {
                 if chainman.have_coin(&transaction, vout) {
                     println!("Found coin at offset {curr}");
                     block_unspents.push(curr);
+                    curr = 0;
                 }
                 curr += 1;
             }

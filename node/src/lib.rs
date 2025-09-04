@@ -220,7 +220,7 @@ pub fn get_blocks_for_range(
                         .expect("header is in best chain.");
                     let block_height = block_index.height().unsigned_abs();
                     let unspent_indexes: HashSet<u64> =
-                        hints.get_block_offsets(block_height).into_iter().collect();
+                        hints.get_indexes(block_height).into_iter().collect();
                     // tracing::info!("{task_id} -> {block_height}:{hash}");
                     let file_path = block_dir.join(format!("{hash}.block"));
                     let file = File::create_new(file_path);

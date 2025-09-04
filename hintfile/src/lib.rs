@@ -79,11 +79,20 @@ impl Hints {
     ///
     /// If there are no offset present at that height, aka an overflow, or the entry has already
     /// been fetched.
-    pub fn get_block_offsets(&self, height: BlockHeight) -> Vec<u64> {
-        self.map
+    pub fn get_indexes(&self, height: BlockHeight) -> Vec<u64> {
+        let offsets = self
+            .map
             .get(&height)
             .cloned()
-            .expect("block height overflow")
+            .expect("block height overflow");
+        let mut indexes = Vec::with_capacity(offsets.len());
+        let mut prev = 0;
+        for offset in offsets {
+            let next = prev + offset;
+            indexes.push(next);
+            prev = next;
+        }
+        indexes
     }
 }
 
