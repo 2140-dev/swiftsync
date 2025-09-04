@@ -315,7 +315,11 @@ pub fn get_blocks_for_range(
     tracing::info!("All block ranges fetched: {task_id}");
 }
 
-pub fn hashes_from_chain(chain: Arc<ChainstateManager>, jobs: usize) -> Vec<Vec<BlockHash>> {
+pub fn hashes_from_chain(
+    chain: Arc<ChainstateManager>,
+    network: Network,
+    jobs: usize,
+) -> Vec<Vec<BlockHash>> {
     let height = chain.best_header().height();
     let mut hashes = Vec::with_capacity(height as usize);
     let mut curr = chain.best_header();
@@ -329,6 +333,9 @@ pub fn hashes_from_chain(chain: Arc<ChainstateManager>, jobs: usize) -> Vec<Vec<
         let hash = BlockHash::from_byte_array(next.block_hash().hash);
         hashes.push(hash);
         curr = next;
+    }
+    if matches!(network, Network::Signet) {
+        return hashes.chunks(20_000).map(|slice| slice.to_vec()).collect();
     }
     // These blocks are empty. Fetch the maximum amount of blocks.
     let first_epoch = hashes.split_off(hashes.len() - 200_000);

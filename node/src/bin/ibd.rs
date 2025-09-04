@@ -74,7 +74,7 @@ fn main() {
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();
-    let hashes = hashes_from_chain(Arc::clone(&chain), task_num);
+    let hashes = hashes_from_chain(Arc::clone(&chain), network, task_num);
     for (task_id, chunk) in hashes.into_iter().enumerate() {
         let chain = Arc::clone(&chain);
         let tx = tx.clone();
