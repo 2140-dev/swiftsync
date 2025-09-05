@@ -2,7 +2,15 @@
 
 This binary implements a SwiftSync client that downloads blocks in parallel from multiple peers, references a hint file, and updates an accumulator. Once the client has reached the stop hash specified in the hint file, the accumulator state is reported as verified or false. For more information, read the [SwiftSync specification](https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd).
 
-You will need a `.hints` file locally to run this binary. See the `hintfile` create in this workspace to generate one from Bitcoin Core.
+You will need a `.hints` file locally to run this binary. There is one committed to by the repository as a `zip` file. You may uncompress it with the `unzip` tool.
+
+```
+sudo apt-get install unzip
+```
+
+```
+unzip bitcoin.hints.zip
+```
 
 To start fast IBD:
 ```
