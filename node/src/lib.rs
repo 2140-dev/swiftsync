@@ -3,7 +3,7 @@ use std::{
     fs::File,
     io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::Path,
+    path::PathBuf,
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
@@ -170,7 +170,7 @@ pub fn get_blocks_for_range(
     blocks_per_sec: f64,
     _ping_timeout: Duration,
     network: Network,
-    block_dir: &Path,
+    block_dir: Option<PathBuf>,
     chain: Arc<ChainstateManager>,
     hints: &Hints,
     peers: Arc<Mutex<Vec<SocketAddr>>>,
@@ -222,19 +222,22 @@ pub fn get_blocks_for_range(
                     let unspent_indexes: HashSet<u64> =
                         hints.get_indexes(block_height).into_iter().collect();
                     // tracing::info!("{task_id} -> {block_height}:{hash}");
-                    let file_path = block_dir.join(format!("{hash}.block"));
-                    let file = File::create_new(file_path);
-                    let mut file = match file {
-                        Ok(file) => file,
-                        Err(e) => {
-                            tracing::warn!("Conflicting open files at: {}", block_height);
-                            tracing::warn!("{e}");
-                            panic!("files cannot conflict");
-                        }
-                    };
-                    let block_bytes = consensus::serialize(&block);
-                    file.write_all(&block_bytes)
-                        .expect("failed to write block file");
+                    if let Some(block_dir) = block_dir.as_ref() {
+                        let file_path = block_dir.join(format!("{hash}.block"));
+                        let file = File::create_new(file_path);
+                        let mut file = match file {
+                            Ok(file) => file,
+                            Err(e) => {
+                                tracing::warn!("Conflicting open files at: {}", block_height);
+                                tracing::warn!("{e}");
+                                panic!("files cannot conflict");
+                            }
+                        };
+                        let block_bytes = consensus::serialize(&block);
+                        file.write_all(&block_bytes)
+                            .expect("failed to write block file");
+                        file.sync_data().expect("could not sync file with OS");
+                    }
                     // tracing::info!("Wrote {hash} to file");
                     let (_, transactions) = block.into_parts();
                     let mut output_index = 0;
