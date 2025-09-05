@@ -45,8 +45,10 @@ fn main() {
     let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
     let hints = Arc::new(Hints::from_file(&mut hintfile));
     elapsed_time(hintfile_start_time);
-    let block_file_path = PathBuf::from(&blocks_dir);
-    std::fs::create_dir(&block_file_path).expect("could not create block file directory");
+    let block_file_path = blocks_dir.map(PathBuf::from);
+    if let Some(block_file_path) = block_file_path.as_ref() {
+        std::fs::create_dir(block_file_path).expect("could not create block file directory");
+    }
     let stop_hash =
         consensus::deserialize::<BlockHash>(&hints.stop_hash()).expect("stop hash is not valid");
     tracing::info!("Assume valid hash: {stop_hash}");
@@ -88,7 +90,7 @@ fn main() {
                 block_per_sec,
                 ping_timeout,
                 network,
-                &block_file_path,
+                block_file_path,
                 chain,
                 &hints,
                 peers,

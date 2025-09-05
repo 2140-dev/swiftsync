@@ -2,19 +2,31 @@
 name = "hintfile"
 type = "String"
 default = "\"./bitcoin.hints\".into()"
-doc = "The path to your `bitcoin.hints` file that will be used for IBD. Default is `./bitcoin.hints"
+doc = "The path to your `bitcoin.hints` file that will be used for IBD. Default is `./bitcoin.hints`"
 
 [[param]]
 name = "blocks_dir"
 type = "String"
-default = "\"./blockfiles\".into()"
-doc = "Directory where you would like to store the bitcoin blocks. Default `./blockfiles`"
+optional = true
+doc = "Optional directory to store the blocks. Used only to measure performance."
 
 [[param]]
 name = "network"
 type = "String"
 default = "\"bitcoin\".into()"
 doc = "The bitcoin network to operate on. Default `bitcoin`. Options are `bitcoin` or `signet`"
+
+[[param]]
+name = "min_blocks_per_sec"
+type = "f64"
+default = "3."
+doc = "The minimum rate a peer has to respond to block requests."
+
+[[param]]
+name = "tasks"
+type = "usize"
+default = "32"
+doc = "The number of tasks to download blocks. Default is 64. Each task uses two OS threads."
 
 [[param]]
 name = "ping_timeout"
@@ -40,14 +52,3 @@ type = "u64"
 default = "2"
 doc = "The maximum time (seconds) to write to a TCP stream until the connection is killed."
 
-[[param]]
-name = "min_blocks_per_sec"
-type = "f64"
-default = "3."
-doc = "The minimum rate a peer has to respond to block requests."
-
-[[param]]
-name = "tasks"
-type = "usize"
-default = "32"
-doc = "The number of tasks to download blocks. Default is 64. Each task uses two OS threads."
