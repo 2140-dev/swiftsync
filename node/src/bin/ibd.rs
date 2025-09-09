@@ -27,7 +27,6 @@ fn main() {
         .network
         .parse::<Network>()
         .expect("invalid network string");
-    let ping_timeout = Duration::from_secs(config.ping_timeout);
     let block_per_sec = config.min_blocks_per_sec;
     let task_num = config.tasks;
     let tcp_timeout = Duration::from_secs(config.tcp_timeout);
@@ -76,11 +75,13 @@ fn main() {
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();
-    let hashes = hashes_from_chain(Arc::clone(&chain), network, task_num);
-    for (task_id, chunk) in hashes.into_iter().enumerate() {
+    let hashes = hashes_from_chain(Arc::clone(&chain));
+    let arc_hashes = Arc::new(Mutex::new(hashes));
+    for task_id in 0..task_num {
         let chain = Arc::clone(&chain);
         let tx = tx.clone();
         let peers = Arc::clone(&peers);
+        let hashes = Arc::clone(&arc_hashes);
         let hints = Arc::clone(&hints);
         let block_file_path = block_file_path.clone();
         let block_task = std::thread::spawn(move || {
@@ -88,14 +89,13 @@ fn main() {
                 task_id as u32,
                 timeout_conf,
                 block_per_sec,
-                ping_timeout,
                 network,
                 block_file_path,
                 chain,
                 &hints,
                 peers,
                 tx,
-                chunk,
+                hashes,
             )
         });
         tasks.push(block_task);

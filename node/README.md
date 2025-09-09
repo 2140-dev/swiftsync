@@ -12,7 +12,18 @@ sudo apt-get install unzip
 unzip bitcoin.hints.zip
 ```
 
+To build the Bitcoin kernel, you will need the following on Ubuntu:
+
+```
+sudo apt-get install build-essential cmake pkgconf python3 libevent-dev libboost-dev
+```
+
+For other systems, follow the Bitcoin Core documentation on how to install the requirements [here](https://github.com/bitcoin/bitcoin/tree/master/doc).
+
+Finally, you will need Rust and cargo installed, you may download them from [here](https://www.rust-lang.org/tools/install).
+
 To start fast IBD:
+
 ```
 cargo run --bin ibd --release -- <args>
 ```
@@ -38,4 +49,10 @@ Arguments:
                                 stream until the connection is killed.
         --write-timeout         The maximum time (seconds) to write to a TCP
                                 stream until the connection is killed.
+```
+
+If IBD completes, or you experience a bug, you will need to remove the kernel directories from this repository to run the binary again: 
+
+```
+rm -rf blocks chainstate
 ```
