@@ -99,66 +99,69 @@ pub fn sync_block_headers(
             Err(_) => continue,
         };
         tracing::info!("Connection established");
-        let mut get_next = true;
-        loop {
-            let mut kill = false;
-            if get_next {
-                let curr = chainman.best_header().block_hash().hash;
-                let locator = BlockHash::from_byte_array(curr);
-                let getheaders = GetHeadersMessage {
-                    version: PROTOCOL_VERSION,
-                    locator_hashes: vec![locator],
-                    stop_hash: BlockHash::GENESIS_PREVIOUS_BLOCK_HASH,
-                };
-                tracing::info!("Requesting {locator}");
-                if writer
-                    .send_message(NetworkMessage::GetHeaders(getheaders))
-                    .is_err()
-                {
+        let curr = chainman.best_header().block_hash().hash;
+        let locator = BlockHash::from_byte_array(curr);
+        if locator.eq(&stop_hash) {
+            tracing::info!("Using existing header state");
+            return;
+        }
+        let getheaders = GetHeadersMessage {
+            version: PROTOCOL_VERSION,
+            locator_hashes: vec![locator],
+            stop_hash: BlockHash::GENESIS_PREVIOUS_BLOCK_HASH,
+        };
+        tracing::info!("Requesting {locator}");
+        if writer
+            .send_message(NetworkMessage::GetHeaders(getheaders))
+            .is_err()
+        {
+            continue;
+        }
+        while let Ok(Some(message)) = reader.read_message() {
+            match message {
+                NetworkMessage::Headers(message) => {
+                    for header in message.0 {
+                        chainman
+                            .process_new_block_headers(&consensus::serialize(&header), true)
+                            .expect("process headers failed");
+                        if header.block_hash().eq(&stop_hash) {
+                            tracing::info!("Done syncing block headers");
+                            if let Some(message_rate) =
+                                metrics.message_rate(p2p::TimedMessage::BlockHeaders)
+                            {
+                                let mps =
+                                    message_rate.messages_per_secs(Instant::now()).unwrap_or(0.);
+                                tracing::info!("Peer responses per second: {mps}");
+                            }
+                            elapsed_time(then);
+                            return;
+                        }
+                    }
+                    tracing::info!("Update chain tip: {}", chainman.best_header().height());
+                    let curr = chainman.best_header().block_hash().hash;
+                    let locator = BlockHash::from_byte_array(curr);
+                    let getheaders = GetHeadersMessage {
+                        version: PROTOCOL_VERSION,
+                        locator_hashes: vec![locator],
+                        stop_hash: BlockHash::GENESIS_PREVIOUS_BLOCK_HASH,
+                    };
+                    tracing::info!("Requesting {locator}");
+                    if writer
+                        .send_message(NetworkMessage::GetHeaders(getheaders))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                NetworkMessage::Inv(_) => {
                     break;
                 }
-            }
-            while let Ok(Some(message)) = reader.read_message() {
-                match message {
-                    NetworkMessage::Headers(message) => {
-                        for header in message.0 {
-                            chainman
-                                .process_new_block_headers(&consensus::serialize(&header), true)
-                                .expect("process headers failed");
-                            get_next = true;
-                            if header.block_hash().eq(&stop_hash) {
-                                tracing::info!("Done syncing block headers");
-                                if let Some(message_rate) =
-                                    metrics.message_rate(p2p::TimedMessage::BlockHeaders)
-                                {
-                                    let mps = message_rate
-                                        .messages_per_secs(Instant::now())
-                                        .unwrap_or(0.);
-                                    tracing::info!("Peer responses per second: {mps}");
-                                }
-                                elapsed_time(then);
-                                return;
-                            }
-                        }
-                        tracing::info!("Update chain tip: {}", chainman.best_header().height());
-                        break;
-                    }
-                    NetworkMessage::Inv(_) => {
-                        kill = true;
-                        break;
-                    }
-                    NetworkMessage::Ping(nonce) => {
-                        get_next = false;
-                        let _ = writer.send_message(NetworkMessage::Pong(nonce));
-                    }
-                    e => {
-                        get_next = false;
-                        tracing::info!("Ignoring message {}", e.command());
-                    }
+                NetworkMessage::Ping(nonce) => {
+                    let _ = writer.send_message(NetworkMessage::Pong(nonce));
                 }
-            }
-            if kill {
-                break;
+                e => {
+                    tracing::info!("Ignoring message {}", e.command());
+                }
             }
         }
     }
