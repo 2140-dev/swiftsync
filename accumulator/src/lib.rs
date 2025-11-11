@@ -54,15 +54,14 @@ impl Accumulator {
     // ref: https://github.com/rust-bitcoin/rust-bitcoin/blob/7bbb9085c63dc69e9da16ec9c11c698d6236c95c/bitcoin/src/pow.rs#L658
     pub fn add(&mut self, outpoint: OutPoint) {
         let hash = hash_outpoint(outpoint);
-        let (big, little) = Self::create_rhs(hash);
-        let (high, low) = Self::add_internal(self.high, self.low, big, little);
-        *self = Self { high, low };
+        self.add_hashed_outpoint(hash);
     }
 
     /// Add a pre-hashed outpoint to the accumulator.
     pub fn add_hashed_outpoint(&mut self, hash: [u8; 32]) {
         let (big, little) = Self::create_rhs(hash);
-        let (high, low) = Self::add_internal(self.high, self.low, big, little);
+        let high = self.high.wrapping_add(big);
+        let low = self.low.wrapping_add(little);
         *self = Self { high, low };
     }
 
@@ -77,34 +76,15 @@ impl Accumulator {
     /// Spend the inputs in a block by subtracing them from the accumulator.
     pub fn spend(&mut self, outpoint: OutPoint) {
         let hash = hash_outpoint(outpoint);
-        let (high, low) = Self::create_rhs(hash);
-        let high_inv = !high;
-        let low_inv = !low;
-        let (high, low) = Self::add_internal(self.high, self.low, high_inv, low_inv);
-        let (high, low) = Self::add_internal(high, low, 0, 1);
-        *self = Self { high, low }
+        self.spend_hashed_outpoint(hash);
     }
 
     /// Spend a pre-hashed outpoint from the accumulator.
     pub fn spend_hashed_outpoint(&mut self, hash: [u8; 32]) {
-        let (high, low) = Self::create_rhs(hash);
-        let high_inv = !high;
-        let low_inv = !low;
-        let (high, low) = Self::add_internal(self.high, self.low, high_inv, low_inv);
-        let (high, low) = Self::add_internal(high, low, 0, 1);
+        let (big, little) = Self::create_rhs(hash);
+        let high = self.high.wrapping_sub(big);
+        let low = self.low.wrapping_sub(little);
         *self = Self { high, low }
-    }
-
-    // Add LHS to RHS, wrapping around if necessary
-    fn add_internal(lhs_high: u128, lhs_low: u128, rhs_high: u128, rhs_low: u128) -> (u128, u128) {
-        let high = lhs_high.wrapping_add(rhs_high);
-        let mut ret_high = high;
-        let (low, low_bits_overflow) = lhs_low.overflowing_add(rhs_low);
-        if low_bits_overflow {
-            // Carry
-            ret_high = ret_high.wrapping_add(1);
-        }
-        (ret_high, low)
     }
 
     fn create_rhs(hash: [u8; 32]) -> (u128, u128) {
