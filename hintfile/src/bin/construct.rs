@@ -34,8 +34,12 @@ fn main() {
     let chainman = ChainstateManager::new(options).unwrap();
     println!("Chain state initialized");
     // Writing the chain tip allows the client to know where to stop
-    let tip = chainman.block_index_tip().block_hash().hash;
-    file.write_all(&tip).expect("file cannot be written to");
+    let tip = chainman.block_index_tip();
+    let stop_height = (tip.height() as u32).to_le_bytes();
+    file.write_all(&stop_height)
+        .expect("file cannot be written to");
+    file.write_all(&tip.block_hash().hash)
+        .expect("file cannot be written to");
 
     let genesis = chainman.block_index_genesis();
     let mut current = chainman.next_block_index(genesis).unwrap();
