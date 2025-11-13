@@ -47,6 +47,7 @@ pub fn read_compact_size<R: Read>(reader: &mut R) -> Result<u64, io::Error> {
 pub struct Hints {
     map: BTreeMap<BlockHeight, Vec<u64>>,
     assume_valid: BlockHash,
+    stop_height: BlockHeight,
 }
 
 impl Hints {
@@ -56,6 +57,8 @@ impl Hints {
     pub fn from_file<R: Read>(reader: &mut R) -> Self {
         let mut map = BTreeMap::new();
         let mut height = 1;
+        let mut stop_height = [0; 4];
+        reader.read_exact(&mut stop_height).expect("empty file");
         let mut assume_valid = [0; 32];
         reader.read_exact(&mut assume_valid).expect("empty file");
         while let Ok(count) = read_compact_size(reader) {
@@ -67,12 +70,21 @@ impl Hints {
             map.insert(height, offsets);
             height += 1;
         }
-        Self { map, assume_valid }
+        Self {
+            map,
+            assume_valid,
+            stop_height: BlockHeight::from_le_bytes(stop_height),
+        }
     }
 
     /// Get the last hash encoded in the hintfile.
     pub fn stop_hash(&self) -> BlockHash {
         self.assume_valid
+    }
+
+    /// Get the stop height of the hint file.
+    pub fn stop_height(&self) -> BlockHeight {
+        self.stop_height
     }
 
     /// # Panics

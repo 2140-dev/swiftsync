@@ -44,6 +44,7 @@ fn main() {
     let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
     let hints = Arc::new(Hints::from_file(&mut hintfile));
     elapsed_time(hintfile_start_time);
+    tracing::info!("Syncing to height {}", hints.stop_height());
     let block_file_path = blocks_dir.map(PathBuf::from);
     if let Some(block_file_path) = block_file_path.as_ref() {
         std::fs::create_dir(block_file_path).expect("could not create block file directory");
