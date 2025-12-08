@@ -74,7 +74,7 @@ pub fn bootstrap_dns(network: Network) -> Vec<SocketAddr> {
 }
 
 pub fn sync_block_headers(
-    stop_hash: BlockHash,
+    stop_height: u32,
     hosts: &[SocketAddr],
     chainman: Arc<ChainstateManager>,
     network: Network,
@@ -99,9 +99,10 @@ pub fn sync_block_headers(
             Err(_) => continue,
         };
         tracing::info!("Connection established");
-        let curr = chainman.best_header().block_hash().hash;
-        let locator = BlockHash::from_byte_array(curr);
-        if locator.eq(&stop_hash) {
+        let curr = chainman.best_header();
+        let locator = BlockHash::from_byte_array(curr.block_hash().hash);
+        let curr_height = curr.height() as u32;
+        if curr_height.eq(&stop_height) {
             tracing::info!("Using existing header state");
             return;
         }
@@ -124,7 +125,8 @@ pub fn sync_block_headers(
                         chainman
                             .process_new_block_headers(&consensus::serialize(&header), true)
                             .expect("process headers failed");
-                        if header.block_hash().eq(&stop_hash) {
+                        let curr_height = chainman.best_header().height() as u32;
+                        if curr_height.eq(&stop_height) {
                             tracing::info!("Done syncing block headers");
                             if let Some(message_rate) =
                                 metrics.message_rate(p2p::TimedMessage::BlockHeaders)
@@ -175,7 +177,7 @@ pub fn get_blocks_for_range(
     network: Network,
     block_dir: Option<PathBuf>,
     chain: Arc<ChainstateManager>,
-    hints: &Hints,
+    hints: Arc<Mutex<Hints>>,
     peers: Arc<Mutex<Vec<SocketAddr>>>,
     updater: Sender<AccumulatorUpdate>,
     hashes: Arc<Mutex<Vec<Vec<BlockHash>>>>,
@@ -231,8 +233,10 @@ pub fn get_blocks_for_range(
                         .block_index_by_hash(kernal_hash)
                         .expect("header is in best chain.");
                     let block_height = block_index.height().unsigned_abs();
-                    let unspent_indexes: HashSet<u64> =
-                        hints.get_indexes(block_height).into_iter().collect();
+                    let unspent_indexes: HashSet<u64> = {
+                        let mut hint_ref = hints.lock().unwrap();
+                        hint_ref.get_indexes(block_height).into_iter().collect()
+                    };
                     if let Some(block_dir) = block_dir.as_ref() {
                         let file_path = block_dir.join(format!("{hash}.block"));
                         let file = File::create_new(file_path);
