@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bitcoin::{consensus, BlockHash, Network};
+use bitcoin::Network;
 use hintfile::Hints;
 use kernel::{ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
@@ -41,17 +41,16 @@ fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
     let hintfile_start_time = Instant::now();
     tracing::info!("Reading in {hint_path}");
-    let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
-    let hints = Arc::new(Hints::from_file(&mut hintfile));
+    let hintfile = File::open(hint_path).expect("invalid hintfile path");
+    let hints = Hints::from_file(hintfile);
+    let stop_height = hints.stop_height();
     elapsed_time(hintfile_start_time);
     tracing::info!("Syncing to height {}", hints.stop_height());
     let block_file_path = blocks_dir.map(PathBuf::from);
     if let Some(block_file_path) = block_file_path.as_ref() {
         std::fs::create_dir(block_file_path).expect("could not create block file directory");
     }
-    let stop_hash =
-        consensus::deserialize::<BlockHash>(&hints.stop_hash()).expect("stop hash is not valid");
-    tracing::info!("Assume valid hash: {stop_hash}");
+    tracing::info!("Assume valid height: {stop_height}");
     tracing::info!("Finding peers with DNS");
     let dns_start_time = Instant::now();
     let peers = bootstrap_dns(network);
@@ -68,7 +67,13 @@ fn main() {
     let tip = chainman.best_header().height();
     tracing::info!("Kernel best header: {tip}");
     let chain = Arc::new(chainman);
-    sync_block_headers(stop_hash, &peers, Arc::clone(&chain), network, timeout_conf);
+    sync_block_headers(
+        stop_height,
+        &peers,
+        Arc::clone(&chain),
+        network,
+        timeout_conf,
+    );
     tracing::info!("Assume valid height: {}", chain.best_header().height());
     let (tx, rx) = channel();
     let main_routine_time = Instant::now();
@@ -78,6 +83,7 @@ fn main() {
     let mut tasks = Vec::new();
     let hashes = hashes_from_chain(Arc::clone(&chain));
     let arc_hashes = Arc::new(Mutex::new(hashes));
+    let hints = Arc::new(Mutex::new(hints));
     for task_id in 0..task_num {
         let chain = Arc::clone(&chain);
         let tx = tx.clone();
@@ -93,7 +99,7 @@ fn main() {
                 network,
                 block_file_path,
                 chain,
-                &hints,
+                hints,
                 peers,
                 tx,
                 hashes,

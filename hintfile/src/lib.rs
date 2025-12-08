@@ -1,10 +1,11 @@
 use std::{
     collections::BTreeMap,
-    io::{self, Read, Write},
+    fs::File,
+    io::{self, Read, Seek, SeekFrom, Write},
 };
 
-type BlockHash = [u8; 32];
 type BlockHeight = u32;
+type FilePos = u64;
 
 pub fn write_compact_size<W: Write>(value: u64, writer: &mut W) -> Result<(), io::Error> {
     match value {
@@ -45,8 +46,8 @@ pub fn read_compact_size<R: Read>(reader: &mut R) -> Result<u64, io::Error> {
 
 #[derive(Debug)]
 pub struct Hints {
-    map: BTreeMap<BlockHeight, Vec<u64>>,
-    assume_valid: BlockHash,
+    map: BTreeMap<BlockHeight, FilePos>,
+    file: File,
     stop_height: BlockHeight,
 }
 
@@ -54,32 +55,35 @@ impl Hints {
     // # Panics
     //
     // Panics when expected data is not present, or the hintfile overflows the maximum blockheight
-    pub fn from_file<R: Read>(reader: &mut R) -> Self {
+    pub fn from_file(mut file: File) -> Self {
         let mut map = BTreeMap::new();
-        let mut height = 1;
+        let mut magic = [0; 4];
+        file.read_exact(&mut magic).unwrap();
+        assert_eq!(magic, [0x55, 0x54, 0x58, 0x4f]);
+        let mut ver = [0; 1];
+        file.read_exact(&mut ver).unwrap();
+        if u8::from_le_bytes(ver) != 0x00 {
+            panic!("Unsupported file version.");
+        }
         let mut stop_height = [0; 4];
-        reader.read_exact(&mut stop_height).expect("empty file");
-        let mut assume_valid = [0; 32];
-        reader.read_exact(&mut assume_valid).expect("empty file");
-        while let Ok(count) = read_compact_size(reader) {
-            // panics on 32 bit machines
-            let mut offsets = Vec::with_capacity(count as usize);
-            for _ in 0..count {
-                offsets.push(read_compact_size(reader).expect("unexpected end of hintfile"));
-            }
-            map.insert(height, offsets);
-            height += 1;
+        file.read_exact(&mut stop_height).expect("empty file");
+        let stop_height = BlockHeight::from_le_bytes(stop_height);
+        for _ in 1..=stop_height {
+            let mut height = [0; 4];
+            file.read_exact(&mut height)
+                .expect("expected kv pair does not exist.");
+            let height = BlockHeight::from_le_bytes(height);
+            let mut file_pos = [0; 8];
+            file.read_exact(&mut file_pos)
+                .expect("expected kv pair does not exist.");
+            let file_pos = FilePos::from_le_bytes(file_pos);
+            map.insert(height, file_pos);
         }
         Self {
             map,
-            assume_valid,
-            stop_height: BlockHeight::from_le_bytes(stop_height),
+            file,
+            stop_height,
         }
-    }
-
-    /// Get the last hash encoded in the hintfile.
-    pub fn stop_hash(&self) -> BlockHash {
-        self.assume_valid
     }
 
     /// Get the stop height of the hint file.
@@ -91,15 +95,20 @@ impl Hints {
     ///
     /// If there are no offset present at that height, aka an overflow, or the entry has already
     /// been fetched.
-    pub fn get_indexes(&self, height: BlockHeight) -> Vec<u64> {
-        let offsets = self
+    pub fn get_indexes(&mut self, height: BlockHeight) -> Vec<u64> {
+        let file_pos = self
             .map
             .get(&height)
             .cloned()
             .expect("block height overflow");
-        let mut indexes = Vec::with_capacity(offsets.len());
+        self.file
+            .seek(SeekFrom::Start(file_pos))
+            .expect("missing file position.");
+        let num_unspents = read_compact_size(&mut self.file).expect("unexpected missing hints.");
+        let mut indexes = Vec::new();
         let mut prev = 0;
-        for offset in offsets {
+        for _ in 0..num_unspents {
+            let offset = read_compact_size(&mut self.file).expect("unexpected missing hints.");
             let next = prev + offset;
             indexes.push(next);
             prev = next;
