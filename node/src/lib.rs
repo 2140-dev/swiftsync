@@ -294,17 +294,18 @@ pub fn get_blocks_for_range(
                         batch = next;
                         completed_batches += 1;
                         tracing::info!(
-                            "[thread {task_id:2}]: requesting next batch. blocks downloaded: {}",
-                            CHUNK_SIZE * completed_batches
+                            "[thread {task_id:2}]: blocks downloaded: {}/{}",
+                            CHUNK_SIZE * completed_batches,
+                            stop_height,
                         );
                         let percent = (1.
                             - ((CHUNK_SIZE * jobs_lock.len()) as f32 / stop_height as f32))
                             * 100.0;
                         tracing::info!(
-                            "[thread  m]: {:.6}/{}; progress: {:.6}%",
+                            "[thread  m]: progress: {:.6}% ; blocks remaining: {}/{}",
+                            percent,
                             CHUNK_SIZE * jobs_lock.len(),
                             stop_height,
-                            percent,
                         );
                         let payload = InventoryPayload(
                             batch.iter().map(|hash| Inventory::Block(*hash)).collect(),

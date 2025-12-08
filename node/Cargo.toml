@@ -23,6 +23,3 @@ spec = "config_spec.toml"
 
 [[bin]]
 name = "ibd"
-
-[[bin]]
-name = "bench"
