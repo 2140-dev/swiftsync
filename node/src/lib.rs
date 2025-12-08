@@ -184,6 +184,7 @@ pub fn get_blocks_for_range(
 ) {
     let mut batch = Vec::new();
     let mut rng = thread_rng();
+    let stop_height = { hints.lock().unwrap().stop_height() };
     loop {
         let peer = {
             let lock_opt = peers.lock().ok();
@@ -296,9 +297,14 @@ pub fn get_blocks_for_range(
                             "[thread {task_id:2}]: requesting next batch. blocks downloaded: {}",
                             CHUNK_SIZE * completed_batches
                         );
+                        let percent = (1.
+                            - ((CHUNK_SIZE * jobs_lock.len()) as f32 / stop_height as f32))
+                            * 100.0;
                         tracing::info!(
-                            "[thread  m]: blocks remaining {}",
-                            CHUNK_SIZE * jobs_lock.len()
+                            "[thread  m]: {:.6}/{}; progress: {:.6}%",
+                            CHUNK_SIZE * jobs_lock.len(),
+                            stop_height,
+                            percent,
                         );
                         let payload = InventoryPayload(
                             batch.iter().map(|hash| Inventory::Block(*hash)).collect(),
