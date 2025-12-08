@@ -2,19 +2,23 @@
 
 This binary implements a SwiftSync client that downloads blocks in parallel from multiple peers, references a hint file, and updates an accumulator. Once the client has reached the stop hash specified in the hint file, the accumulator state is reported as verified or false. For more information, read the [SwiftSync specification](https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd).
 
-You will need a `.hints` file locally to run this binary. There is one committed to by the repository as a `zip` file. You may uncompress it with the `unzip` tool.
+You will need a `.hints` file locally to run this binary. You may download one from a server:
 
-```
-sudo apt-get install unzip
+For Signet:
+
+```bash
+curl -o signet.hints http://utxohints.store/hints/signet
 ```
 
-```
-unzip bitcoin.hints.zip
+Or for Bitcoin:
+
+```bash
+curl -o bitcoin.hints http://utxohints.store/hints/bitcoin
 ```
 
 To build the Bitcoin kernel, you will need the following on Ubuntu:
 
-```
+```bash
 sudo apt-get install build-essential cmake pkgconf python3 libevent-dev libboost-dev
 ```
 
@@ -24,7 +28,7 @@ Finally, you will need Rust and cargo installed, you may download them from [her
 
 To start fast IBD:
 
-```
+```bash
 cargo run --bin ibd --release -- <args>
 ```
 
