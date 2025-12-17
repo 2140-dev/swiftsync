@@ -104,16 +104,23 @@ impl Hints {
         self.file
             .seek(SeekFrom::Start(file_pos))
             .expect("missing file position.");
-        let num_unspents = read_compact_size(&mut self.file).expect("unexpected missing hints.");
-        let mut indexes = Vec::new();
-        let mut prev = 0;
-        for _ in 0..num_unspents {
-            let offset = read_compact_size(&mut self.file).expect("unexpected missing hints.");
-            let next = prev + offset;
-            indexes.push(next);
-            prev = next;
+        let mut bits_arr = [0; 4];
+        self.file.read_exact(&mut bits_arr).unwrap();
+        let mut unspents = Vec::new();
+        let num_bits = u32::from_le_bytes(bits_arr);
+        let mut curr_byte: u8 = 0;
+        for bit_pos in 0..num_bits {
+            let leftovers = bit_pos % 8;
+            if leftovers == 0 {
+                let mut single_byte_arr = [0; 1];
+                self.file.read_exact(&mut single_byte_arr).unwrap();
+                curr_byte = u8::from_le_bytes(single_byte_arr);
+            }
+            if ((curr_byte >> leftovers) & 0x01) == 0x01 {
+                unspents.push(bit_pos as u64);
+            }
         }
-        indexes
+        unspents
     }
 }
 
