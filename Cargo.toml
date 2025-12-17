@@ -1,5 +1,5 @@
 [workspace]
-members = ["accumulator", "hintfile", "node"]
+members = ["accumulator", "analysis", "hintfile", "node"]
 default-members = ["accumulator"]
 resolver = "2"
 
