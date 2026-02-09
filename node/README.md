@@ -7,13 +7,13 @@ You will need a `.hints` file locally to run this binary. You may download one f
 For Signet:
 
 ```bash
-curl -o signet.hints http://utxohints.store/hints/signet
+curl -o signet.hints https://utxohints.store/hints/signet
 ```
 
 Or for Bitcoin:
 
 ```bash
-curl -o bitcoin.hints http://utxohints.store/hints/bitcoin
+curl -o bitcoin.hints https://utxohints.store/hints/bitcoin
 ```
 
 To build the Bitcoin kernel, you will need the following on Ubuntu:
