@@ -8,7 +8,7 @@ build = "build.rs"
 accumulator = { path = "../accumulator/" }
 bitcoin = { workspace = true }
 kernel = { workspace = true }
-hintfile = { path = "../hintfile/" }
+hintsfile = { workspace = true }
 p2p = { workspace = true }
 
 configure_me = "0.4.0"

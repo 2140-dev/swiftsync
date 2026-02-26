@@ -19,7 +19,7 @@ use bitcoin::{
     transaction::TransactionExt,
     BlockHash, Network, OutPoint,
 };
-use hintfile::Hints;
+use hintsfile::Hintsfile;
 use kernel::{ChainType, ChainstateManager};
 use p2p::{
     dns::DnsQueryExt,
@@ -177,7 +177,7 @@ pub fn get_blocks_for_range(
     network: Network,
     block_dir: Option<PathBuf>,
     chain: Arc<ChainstateManager>,
-    hints: Arc<Mutex<Hints>>,
+    hints: Arc<Mutex<Hintsfile>>,
     peers: Arc<Mutex<Vec<SocketAddr>>>,
     updater: Sender<AccumulatorUpdate>,
     hashes: Arc<Mutex<Vec<Vec<BlockHash>>>>,
@@ -234,9 +234,13 @@ pub fn get_blocks_for_range(
                         .block_index_by_hash(kernal_hash)
                         .expect("header is in best chain.");
                     let block_height = block_index.height().unsigned_abs();
-                    let unspent_indexes: HashSet<u64> = {
-                        let mut hint_ref = hints.lock().unwrap();
-                        hint_ref.get_indexes(block_height).into_iter().collect()
+                    let unspent_indexes: HashSet<u32> = {
+                        let hint_ref = hints.lock().unwrap();
+                        hint_ref
+                            .indices_at_height(block_height)
+                            .expect("hints should exist")
+                            .into_iter()
+                            .collect()
                     };
                     if let Some(block_dir) = block_dir.as_ref() {
                         let file_path = block_dir.join(format!("{hash}.block"));
@@ -268,10 +272,12 @@ pub fn get_blocks_for_range(
                             }
                         }
                         for (vout, txout) in transaction.outputs.iter().enumerate() {
-                            if !txout.script_pubkey.is_op_return()
-                                && !txout.script_pubkey.len() > 10_000
-                                && !unspent_indexes.contains(&output_index)
+                            if txout.script_pubkey.is_op_return()
+                                || txout.script_pubkey.len() > 10_000
                             {
+                                continue;
+                            }
+                            if !unspent_indexes.contains(&output_index) {
                                 let outpoint = OutPoint {
                                     txid: tx_hash,
                                     vout: vout as u32,

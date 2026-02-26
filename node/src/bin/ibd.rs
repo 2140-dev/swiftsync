@@ -6,7 +6,7 @@ use std::{
 };
 
 use bitcoin::Network;
-use hintfile::Hints;
+use hintsfile::Hintsfile;
 use kernel::{ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
 use node::{
@@ -41,8 +41,8 @@ fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
     let hintfile_start_time = Instant::now();
     tracing::info!("Reading in {hint_path}");
-    let hintfile = File::open(hint_path).expect("invalid hintfile path");
-    let hints = Hints::from_file(hintfile);
+    let mut hintfile = File::open(hint_path).expect("invalid hintfile path");
+    let hints = Hintsfile::from_reader(&mut hintfile).unwrap();
     let stop_height = hints.stop_height();
     elapsed_time(hintfile_start_time);
     tracing::info!("Syncing to height {}", hints.stop_height());
