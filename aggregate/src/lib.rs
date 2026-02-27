@@ -11,7 +11,7 @@ sha256t_tag! {
 /// added and removed the equivalent amount of times, the accumulator is zero. In the context of
 /// bitcoin, this is used to add and remove hashes of [`OutPoint`] data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
-pub struct Accumulator {
+pub struct Aggregate {
     high: u128,
     low: u128,
 }
@@ -36,14 +36,14 @@ fn split_in_half(a: [u8; 32]) -> ([u8; 16], [u8; 16]) {
 
 /// Update an accumulator by adding or spending a pre-hashed outpoint
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccumulatorUpdate {
+pub enum AggregateUpdate {
     Add([u8; 32]),
     Spent([u8; 32]),
 }
 
-impl Accumulator {
+impl Aggregate {
     /// The zero accumulator
-    pub const ZERO: Accumulator = Accumulator { high: 0, low: 0 };
+    pub const ZERO: Aggregate = Aggregate { high: 0, low: 0 };
 
     /// Build a new accumulator.
     pub const fn new() -> Self {
@@ -66,10 +66,10 @@ impl Accumulator {
     }
 
     /// Update the accumulator
-    pub fn update(&mut self, update: AccumulatorUpdate) {
+    pub fn update(&mut self, update: AggregateUpdate) {
         match update {
-            AccumulatorUpdate::Add(added) => self.add_hashed_outpoint(added),
-            AccumulatorUpdate::Spent(spent) => self.spend_hashed_outpoint(spent),
+            AggregateUpdate::Add(added) => self.add_hashed_outpoint(added),
+            AggregateUpdate::Spent(spent) => self.spend_hashed_outpoint(spent),
         }
     }
 
@@ -101,7 +101,7 @@ impl Accumulator {
     }
 }
 
-impl Default for Accumulator {
+impl Default for Aggregate {
     fn default() -> Self {
         Self::ZERO
     }
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_accumulator_is_zero() {
-        let mut acc = Accumulator::default();
+        let mut acc = Aggregate::default();
         let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
             make_five_outpoint();
         // Add the members
@@ -241,10 +241,10 @@ mod tests {
     fn test_same_state() {
         let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
             make_five_outpoint();
-        let mut acc_ref = Accumulator::default();
+        let mut acc_ref = Aggregate::default();
         acc_ref.add(outpoint_two);
         acc_ref.add(outpoint_four);
-        let mut acc_cmp = Accumulator::default();
+        let mut acc_cmp = Aggregate::default();
         acc_cmp.add(outpoint_one);
         acc_cmp.add(outpoint_two);
         acc_cmp.add(outpoint_three);
@@ -266,7 +266,7 @@ mod tests {
         let hash_three = hash_outpoint(outpoint_three);
         let hash_four = hash_outpoint(outpoint_four);
         let hash_five = hash_outpoint(outpoint_five);
-        let mut acc = Accumulator::default();
+        let mut acc = Aggregate::default();
         acc.add_hashed_outpoint(hash_five);
         acc.add_hashed_outpoint(hash_four);
         acc.add_hashed_outpoint(hash_one);
@@ -288,17 +288,17 @@ mod tests {
         let hash_three = hash_outpoint(outpoint_three);
         let hash_four = hash_outpoint(outpoint_four);
         let hash_five = hash_outpoint(outpoint_five);
-        let mut acc = Accumulator::default();
-        acc.update(AccumulatorUpdate::Add(hash_one));
-        acc.update(AccumulatorUpdate::Add(hash_two));
-        acc.update(AccumulatorUpdate::Add(hash_three));
-        acc.update(AccumulatorUpdate::Add(hash_four));
-        acc.update(AccumulatorUpdate::Add(hash_five));
-        acc.update(AccumulatorUpdate::Spent(hash_five));
-        acc.update(AccumulatorUpdate::Spent(hash_four));
-        acc.update(AccumulatorUpdate::Spent(hash_three));
-        acc.update(AccumulatorUpdate::Spent(hash_two));
-        acc.update(AccumulatorUpdate::Spent(hash_one));
+        let mut acc = Aggregate::default();
+        acc.update(AggregateUpdate::Add(hash_one));
+        acc.update(AggregateUpdate::Add(hash_two));
+        acc.update(AggregateUpdate::Add(hash_three));
+        acc.update(AggregateUpdate::Add(hash_four));
+        acc.update(AggregateUpdate::Add(hash_five));
+        acc.update(AggregateUpdate::Spent(hash_five));
+        acc.update(AggregateUpdate::Spent(hash_four));
+        acc.update(AggregateUpdate::Spent(hash_three));
+        acc.update(AggregateUpdate::Spent(hash_two));
+        acc.update(AggregateUpdate::Spent(hash_one));
         assert!(acc.is_zero());
     }
 

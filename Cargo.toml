@@ -1,6 +1,6 @@
 [workspace]
-members = ["accumulator", "node"]
-default-members = ["accumulator"]
+members = ["aggregate", "node"]
+default-members = ["aggregate"]
 resolver = "2"
 
 [workspace.dependencies]

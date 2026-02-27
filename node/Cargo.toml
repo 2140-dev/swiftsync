@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-accumulator = { path = "../accumulator/" }
+aggregate = { path = "../aggregate/" }
 bitcoin = { workspace = true }
 kernel = { workspace = true }
 hintsfile = { workspace = true }

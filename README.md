@@ -1,8 +1,14 @@
 # SwiftSync
 
-:warning::construction: This project is still under construction and expected to change significantly. Use at your own risk :construction::warning:
+:construction: This is a research project not intended for real use. :construction:
 
-This repository is a collection of crates related to a SwiftSync node implementation. Some crates will be SwiftSync-specific, while others may have broader use cases.
+This repository is a collection of crates related to a _SwiftSync_ node implementation. _SwiftSync_ is a protocol that allows nearly-stateless, parallelizable Bitcoin initial block download without adding additional cryptographic assumptions. You may read the [initial writeup here](https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd).
 
-- `accumulator`: A hash-based SwiftSync accumulator used to add and subtrack elements from a set.
+## Executables
+
+See the `node/README.md` to run an initial block download using _SwiftSync_.
+
+## Crates
+
+- `aggregate`: A hash-based data structure used to add and subtrack elements from a set.
 - `node`: Perform fast IBD using a SwiftSync hints file.

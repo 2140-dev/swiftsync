@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use accumulator::{Accumulator, AccumulatorUpdate};
+use aggregate::{Aggregate, AggregateUpdate};
 use bitcoin::{
     consensus,
     key::rand::{seq::SliceRandom, thread_rng},
@@ -43,15 +43,15 @@ pub fn elapsed_time(then: Instant) {
 }
 
 #[derive(Debug)]
-pub struct AccumulatorState {
-    acc: Accumulator,
-    update_rx: Receiver<AccumulatorUpdate>,
+pub struct AggregateState {
+    acc: Aggregate,
+    update_rx: Receiver<AggregateUpdate>,
 }
 
-impl AccumulatorState {
-    pub fn new(rx: Receiver<AccumulatorUpdate>) -> Self {
+impl AggregateState {
+    pub fn new(rx: Receiver<AggregateUpdate>) -> Self {
         Self {
-            acc: Accumulator::new(),
+            acc: Aggregate::new(),
             update_rx: rx,
         }
     }
@@ -179,7 +179,7 @@ pub fn get_blocks_for_range(
     chain: Arc<ChainstateManager>,
     hints: Arc<Mutex<Hintsfile>>,
     peers: Arc<Mutex<Vec<SocketAddr>>>,
-    updater: Sender<AccumulatorUpdate>,
+    updater: Sender<AggregateUpdate>,
     hashes: Arc<Mutex<Vec<Vec<BlockHash>>>>,
 ) {
     let mut batch = Vec::new();
@@ -264,8 +264,8 @@ pub fn get_blocks_for_range(
                         let tx_hash = transaction.compute_txid();
                         if !transaction.is_coinbase() {
                             for input in transaction.inputs {
-                                let input_hash = accumulator::hash_outpoint(input.previous_output);
-                                let update = AccumulatorUpdate::Spent(input_hash);
+                                let input_hash = aggregate::hash_outpoint(input.previous_output);
+                                let update = AggregateUpdate::Spent(input_hash);
                                 updater
                                     .send(update)
                                     .expect("accumulator task must not panic");
@@ -282,8 +282,8 @@ pub fn get_blocks_for_range(
                                     txid: tx_hash,
                                     vout: vout as u32,
                                 };
-                                let input_hash = accumulator::hash_outpoint(outpoint);
-                                let update = AccumulatorUpdate::Add(input_hash);
+                                let input_hash = aggregate::hash_outpoint(outpoint);
+                                let update = AggregateUpdate::Add(input_hash);
                                 updater
                                     .send(update)
                                     .expect("accumulator task must not panic");
