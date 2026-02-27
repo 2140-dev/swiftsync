@@ -1,4 +1,4 @@
-use aggregate::{Accumulator, MultAggregate};
+use aggregate::{Aggregate, MultAggregate};
 use bitcoin::{OutPoint, Txid};
 use rusqlite::Connection;
 
@@ -6,7 +6,7 @@ const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
 
 #[test]
 fn test_static_utxo_set() {
-    let mut acc = Accumulator::new();
+    let mut acc = Aggregate::new();
     let conn = Connection::open("../contrib/data/signet_outpoints.sqlite").unwrap();
     let mut stmt = conn.prepare(SELECT_STMT).unwrap();
     let mut rows = stmt.query([]).unwrap();

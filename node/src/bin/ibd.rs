@@ -11,7 +11,7 @@ use kernel::{ChainstateManager, ChainstateManagerOptions, ContextBuilder};
 
 use node::{
     bootstrap_dns, elapsed_time, get_blocks_for_range, hashes_from_chain, sync_block_headers,
-    AccumulatorState, ChainExt,
+    AggregateState, ChainExt,
 };
 use p2p::net::TimeoutParams;
 
@@ -77,7 +77,7 @@ fn main() {
     tracing::info!("Assume valid height: {}", chain.best_header().height());
     let (tx, rx) = channel();
     let main_routine_time = Instant::now();
-    let mut accumulator_state = AccumulatorState::new(rx);
+    let mut accumulator_state = AggregateState::new(rx);
     let acc_task = std::thread::spawn(move || accumulator_state.verify());
     let peers = Arc::new(Mutex::new(peers));
     let mut tasks = Vec::new();

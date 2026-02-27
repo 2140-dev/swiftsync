@@ -10,5 +10,5 @@ See the `node/README.md` to run an initial block download using _SwiftSync_.
 
 ## Crates
 
-- `accumulator`: A hash-based SwiftSync accumulator used to add and subtrack elements from a set.
+- `aggregate`: A hash-based data structure used to add and subtrack elements from a set.
 - `node`: Perform fast IBD using a SwiftSync hints file.
