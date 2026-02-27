@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use accumulator::{Accumulator, AccumulatorUpdate};
+use aggregate::{Accumulator, AccumulatorUpdate};
 use bitcoin::{
     consensus,
     key::rand::{seq::SliceRandom, thread_rng},
@@ -264,7 +264,7 @@ pub fn get_blocks_for_range(
                         let tx_hash = transaction.compute_txid();
                         if !transaction.is_coinbase() {
                             for input in transaction.inputs {
-                                let input_hash = accumulator::hash_outpoint(input.previous_output);
+                                let input_hash = aggregate::hash_outpoint(input.previous_output);
                                 let update = AccumulatorUpdate::Spent(input_hash);
                                 updater
                                     .send(update)
@@ -282,7 +282,7 @@ pub fn get_blocks_for_range(
                                     txid: tx_hash,
                                     vout: vout as u32,
                                 };
-                                let input_hash = accumulator::hash_outpoint(outpoint);
+                                let input_hash = aggregate::hash_outpoint(outpoint);
                                 let update = AccumulatorUpdate::Add(input_hash);
                                 updater
                                     .send(update)

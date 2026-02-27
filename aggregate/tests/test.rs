@@ -1,4 +1,4 @@
-use accumulator::{Accumulator, MultAggregate};
+use aggregate::{Accumulator, MultAggregate};
 use bitcoin::{OutPoint, Txid};
 use rusqlite::Connection;
 
