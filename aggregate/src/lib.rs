@@ -107,63 +107,6 @@ impl Default for Aggregate {
     }
 }
 
-const VOUT_MAX: usize = 16_000;
-
-/// An alternative accumulator than that of the original SwiftSync write-up, intended to remove the
-/// hashes required to update elements in the set.
-#[derive(Debug)]
-pub struct MultAggregate {
-    memo_table: [[[u8; 16]; 2]; VOUT_MAX],
-    internal: u128,
-}
-
-impl MultAggregate {
-    pub fn new() -> Self {
-        let mut memo_table = [[[0u8; 16]; 2]; VOUT_MAX];
-        for (vout, arr) in memo_table.iter_mut().enumerate() {
-            let bytes = sha256t::hash::<SwiftSyncTag>(&vout.to_le_bytes()).to_byte_array();
-            let (left, right) = split_in_half(bytes);
-            *arr = [left, right];
-        }
-        Self {
-            memo_table,
-            internal: 0,
-        }
-    }
-
-    fn compute_salted_value(&self, outpoint: OutPoint) -> u128 {
-        let branches = self.memo_table[outpoint.vout as usize];
-        let left = branches[0];
-        let right = branches[1];
-        let txid_bytes = outpoint.txid.to_byte_array();
-        let (tx_left, tx_right) = split_in_half(txid_bytes);
-        let lhs = u128::from_le_bytes(left).wrapping_mul(u128::from_le_bytes(tx_left));
-        let rhs = u128::from_le_bytes(right).wrapping_mul(u128::from_le_bytes(tx_right));
-        lhs.wrapping_add(rhs)
-    }
-
-    /// Add an outpoint to the set
-    pub fn add(&mut self, outpoint: OutPoint) {
-        let salted_val = self.compute_salted_value(outpoint);
-        self.internal = self.internal.wrapping_add(salted_val);
-    }
-
-    /// Remove an outpoint from the set
-    pub fn spend(&mut self, outpoint: OutPoint) {
-        let salted_val = self.compute_salted_value(outpoint);
-        self.internal = self.internal.wrapping_sub(salted_val);
-    }
-
-    pub fn is_zero(&self) -> bool {
-        self.internal.eq(&0)
-    }
-}
-
-impl Default for MultAggregate {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 #[cfg(test)]
 mod tests {
     use bitcoin::{
@@ -299,27 +242,6 @@ mod tests {
         acc.update(AggregateUpdate::Spent(hash_three));
         acc.update(AggregateUpdate::Spent(hash_two));
         acc.update(AggregateUpdate::Spent(hash_one));
-        assert!(acc.is_zero());
-    }
-
-    #[test]
-    fn test_mult_agg_is_zero() {
-        let mut acc = MultAggregate::default();
-        let [outpoint_one, outpoint_two, outpoint_three, outpoint_four, outpoint_five] =
-            make_five_outpoint();
-        // Add the members
-        acc.add(outpoint_one);
-        acc.add(outpoint_two);
-        acc.add(outpoint_five);
-        acc.add(outpoint_four);
-        acc.add(outpoint_three);
-        assert!(!acc.is_zero());
-        // Take away the members
-        acc.spend(outpoint_two);
-        acc.spend(outpoint_five);
-        acc.spend(outpoint_three);
-        acc.spend(outpoint_four);
-        acc.spend(outpoint_one);
         assert!(acc.is_zero());
     }
 }

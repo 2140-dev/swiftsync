@@ -21,7 +21,7 @@ configure_me::include_config!();
 
 fn main() {
     let (config, _) = Config::including_optional_config_files::<&[&str]>(&[]).unwrap_or_exit();
-    let hint_path = config.hintfile;
+    let hint_path = config.hintsfile;
     let blocks_dir = config.blocks_dir;
     let network = config
         .network

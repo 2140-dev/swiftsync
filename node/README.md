@@ -1,6 +1,6 @@
 # SwiftSync fast IBD
 
-This binary implements a SwiftSync client that downloads blocks in parallel from multiple peers, references a hint file, and updates an accumulator. Once the client has reached the stop hash specified in the hint file, the accumulator state is reported as verified or false. For more information, read the [SwiftSync specification](https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd).
+This binary implements a SwiftSync client that downloads blocks in parallel from multiple peers, references a hintsfile, and updates an accumulator. Once the client has reached the stop hash specified in the hintsfile, the accumulator state is reported as verified or false. For more information, read the [SwiftSync specification](https://gist.github.com/RubenSomsen/a61a37d14182ccd78760e477c78133cd).
 
 You will need a `.hints` file locally to run this binary. You may download one from a server:
 
@@ -34,7 +34,7 @@ cargo run --bin ibd --release -- <args>
 
 ```
 Arguments:
-        --hintfile              The path to your `bitcoin.hints` file that will
+        --hintsfile             The path to your `bitcoin.hints` file that will
                                 be used for IBD. Default is `./bitcoin.hints`
         --blocks-dir            Optional directory to store the blocks. Used
                                 only to measure performance.
