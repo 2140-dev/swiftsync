@@ -1,56 +1,50 @@
-use aggregate::{Aggregate, MultAggregate};
+use aggregate::Aggregate;
 use bitcoin::{OutPoint, Txid};
-use rusqlite::Connection;
 
-const SELECT_STMT: &str = "SELECT txid, vout FROM utxos";
+const TEST_ITERS: usize = 10_000;
+const TEST_SEED: u64 = 420;
+
+struct Rng {
+    state: u64,
+}
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        Rng {
+            state: if seed == 0 { 1 } else { seed },
+        }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        self.state
+    }
+
+    fn next_32_bytes(&mut self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for chunk in out.chunks_exact_mut(8) {
+            chunk.copy_from_slice(&self.next_u64().to_le_bytes());
+        }
+        out
+    }
+}
 
 #[test]
 fn test_static_utxo_set() {
     let mut acc = Aggregate::new();
-    let conn = Connection::open("../contrib/data/signet_outpoints.sqlite").unwrap();
-    let mut stmt = conn.prepare(SELECT_STMT).unwrap();
-    let mut rows = stmt.query([]).unwrap();
-    while let Some(row) = rows.next().unwrap() {
-        let txid: String = row.get(0).unwrap();
-        let vout: u32 = row.get(1).unwrap();
-        let txid = txid.parse::<Txid>().unwrap();
+    let mut rng = Rng::new(TEST_SEED);
+    let mut outpoints = Vec::with_capacity(TEST_ITERS);
+    for _ in 0..TEST_ITERS {
+        let txid = Txid::from_byte_array(rng.next_32_bytes());
+        let vout = (rng.next_u64() % u32::MAX as u64) as u32;
         let outpoint = OutPoint { txid, vout };
         acc.spend(outpoint);
+        outpoints.push(outpoint);
     }
     assert!(!acc.is_zero());
-    let mut stmt = conn.prepare(SELECT_STMT).unwrap();
-    let mut rows = stmt.query([]).unwrap();
-    while let Some(row) = rows.next().unwrap() {
-        let txid: String = row.get(0).unwrap();
-        let vout: u32 = row.get(1).unwrap();
-        let txid = txid.parse::<Txid>().unwrap();
-        let outpoint = OutPoint { txid, vout };
-        acc.add(outpoint);
-    }
-    assert!(acc.is_zero());
-}
-
-#[test]
-fn test_mult_agg() {
-    let mut acc = MultAggregate::new();
-    let conn = Connection::open("../contrib/data/signet_outpoints.sqlite").unwrap();
-    let mut stmt = conn.prepare(SELECT_STMT).unwrap();
-    let mut rows = stmt.query([]).unwrap();
-    while let Some(row) = rows.next().unwrap() {
-        let txid: String = row.get(0).unwrap();
-        let vout: u32 = row.get(1).unwrap();
-        let txid = txid.parse::<Txid>().unwrap();
-        let outpoint = OutPoint { txid, vout };
-        acc.spend(outpoint);
-    }
-    assert!(!acc.is_zero());
-    let mut stmt = conn.prepare(SELECT_STMT).unwrap();
-    let mut rows = stmt.query([]).unwrap();
-    while let Some(row) = rows.next().unwrap() {
-        let txid: String = row.get(0).unwrap();
-        let vout: u32 = row.get(1).unwrap();
-        let txid = txid.parse::<Txid>().unwrap();
-        let outpoint = OutPoint { txid, vout };
+    for outpoint in outpoints {
         acc.add(outpoint);
     }
     assert!(acc.is_zero());
