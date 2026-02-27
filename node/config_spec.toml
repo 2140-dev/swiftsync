@@ -1,5 +1,5 @@
 [[param]]
-name = "hintfile"
+name = "hintsfile"
 type = "String"
 default = "\"./bitcoin.hints\".into()"
 doc = "The path to your `bitcoin.hints` file that will be used for IBD. Default is `./bitcoin.hints`"
