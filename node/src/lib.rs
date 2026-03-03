@@ -17,7 +17,7 @@ use bitcoin::{
     key::rand::{seq::SliceRandom, thread_rng},
     script::ScriptExt,
     transaction::TransactionExt,
-    BlockHash, Network, OutPoint,
+    BlockChecked, BlockHash, Network, OutPoint,
 };
 use hintsfile::Hintsfile;
 use kernel::{ChainType, ChainstateManager};
@@ -258,12 +258,13 @@ pub fn get_blocks_for_range(
                             .expect("failed to write block file");
                         file.sync_data().expect("could not sync file with OS");
                     }
-                    let (_, transactions) = block.into_parts();
+                    let block = block.assume_checked(None);
                     let mut output_index = 0;
-                    for transaction in transactions {
-                        let tx_hash = transaction.compute_txid();
+                    let mut spent_outpoints = HashSet::new();
+                    for transaction in block.transactions() {
                         if !transaction.is_coinbase() {
-                            for input in transaction.inputs {
+                            for input in &transaction.inputs {
+                                spent_outpoints.insert(input.previous_output);
                                 let input_hash = aggregate::hash_outpoint(input.previous_output);
                                 let update = AggregateUpdate::Spent(input_hash);
                                 updater
@@ -271,17 +272,30 @@ pub fn get_blocks_for_range(
                                     .expect("accumulator task must not panic");
                             }
                         }
+                    }
+                    for transaction in block.transactions() {
+                        let tx_hash = transaction.compute_txid();
                         for (vout, txout) in transaction.outputs.iter().enumerate() {
                             if txout.script_pubkey.is_op_return()
                                 || txout.script_pubkey.len() > 10_000
+                                || transaction.is_coinbase()
+                                    && block.is_bip30_unspendable(block_height)
                             {
                                 continue;
                             }
+                            let outpoint = OutPoint {
+                                txid: tx_hash,
+                                vout: vout as u32,
+                            };
+                            if spent_outpoints.contains(&outpoint) {
+                                let input_hash = aggregate::hash_outpoint(outpoint);
+                                let update = AggregateUpdate::Add(input_hash);
+                                updater
+                                    .send(update)
+                                    .expect("accumulator task must not panic");
+                                continue;
+                            }
                             if !unspent_indexes.contains(&output_index) {
-                                let outpoint = OutPoint {
-                                    txid: tx_hash,
-                                    vout: vout as u32,
-                                };
                                 let input_hash = aggregate::hash_outpoint(outpoint);
                                 let update = AggregateUpdate::Add(input_hash);
                                 updater
@@ -386,5 +400,24 @@ impl ChainExt for Network {
             Network::Signet => ChainType::SIGNET,
             _ => unimplemented!("choose bitcoin or signet"),
         }
+    }
+}
+
+trait Bip30UnspendableExt {
+    fn is_bip30_unspendable(&self, height: u32) -> bool;
+}
+
+impl Bip30UnspendableExt for bitcoin::Block<BlockChecked> {
+    fn is_bip30_unspendable(&self, height: u32) -> bool {
+        height == 91722
+            && "00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e"
+                .parse::<BlockHash>()
+                .unwrap()
+                .eq(&self.block_hash())
+            || height == 91812
+                && "00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f"
+                    .parse::<BlockHash>()
+                    .unwrap()
+                    .eq(&self.block_hash())
     }
 }
