@@ -7,7 +7,7 @@ use std::{
 
 use bitcoin::Network;
 use hintsfile::Hintsfile;
-use kernel::{ChainstateManager, ChainstateManagerOptions, ContextBuilder};
+use kernel::{ChainstateManager, ContextBuilder};
 
 use node::{
     bootstrap_dns, elapsed_time, get_blocks_for_range, hashes_from_chain, sync_block_headers,
@@ -61,10 +61,12 @@ fn main() {
         .chain_type(network.chain_type())
         .build()
         .unwrap();
-    let options = ChainstateManagerOptions::new(&ctx, ".", "./blocks").unwrap();
-    let chainman = ChainstateManager::new(options).unwrap();
+    let chainman = ChainstateManager::new(&ctx, ".", "./blocks").unwrap();
     elapsed_time(kernel_start_time);
-    let tip = chainman.best_header().height();
+    let tip = chainman
+        .best_entry()
+        .expect("best entry must exist")
+        .height();
     tracing::info!("Kernel best header: {tip}");
     let chain = Arc::new(chainman);
     sync_block_headers(
@@ -74,7 +76,10 @@ fn main() {
         network,
         timeout_conf,
     );
-    tracing::info!("Assume valid height: {}", chain.best_header().height());
+    tracing::info!(
+        "Assume valid height: {}",
+        chain.best_entry().expect("best entry must exist").height()
+    );
     let (tx, rx) = channel();
     let main_routine_time = Instant::now();
     let mut accumulator_state = AggregateState::new(rx);
