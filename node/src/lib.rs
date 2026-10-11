@@ -5,7 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     sync::{
-        mpsc::{Receiver, Sender},
+        mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -64,13 +64,34 @@ impl AggregateState {
     }
 }
 
+const DNS_RESOLVERS: [Ipv4Addr; 3] = [
+    Ipv4Addr::new(1, 1, 1, 1),
+    Ipv4Addr::new(8, 8, 8, 8),
+    Ipv4Addr::new(9, 9, 9, 9),
+];
+const DNS_TIMEOUT: Duration = Duration::from_secs(15);
+
 pub fn bootstrap_dns(network: Network) -> Vec<SocketAddr> {
-    let cloudflare = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53);
-    network
-        .query_dns_seeds(cloudflare)
-        .into_iter()
-        .map(|ip| SocketAddr::new(ip, network.default_p2p_port()))
-        .collect()
+    for resolver in DNS_RESOLVERS {
+        tracing::info!("Querying DNS seeds with resolver {resolver}");
+        // The UDP socket used for DNS queries has no read timeout, so an unreachable resolver
+        // blocks forever. Run the query on its own thread and move on if it takes too long.
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(network.query_dns_seeds(SocketAddr::new(IpAddr::V4(resolver), 53)));
+        });
+        match rx.recv_timeout(DNS_TIMEOUT) {
+            Ok(ips) if !ips.is_empty() => {
+                return ips
+                    .into_iter()
+                    .map(|ip| SocketAddr::new(ip, network.default_p2p_port()))
+                    .collect();
+            }
+            Ok(_) => tracing::warn!("Resolver {resolver} returned no peers"),
+            Err(_) => tracing::warn!("Resolver {resolver} timed out"),
+        }
+    }
+    Vec::new()
 }
 
 pub fn sync_block_headers(
