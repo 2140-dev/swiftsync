@@ -121,4 +121,7 @@ fn main() {
     let acc_result = acc_task.join().unwrap();
     tracing::info!("Verified: {acc_result}");
     elapsed_time(main_routine_time);
+    if !acc_result {
+        std::process::exit(1);
+    }
 }

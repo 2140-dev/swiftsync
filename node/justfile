@@ -1,5 +1,12 @@
-ibd:
-  cargo run --bin ibd ./bitcoin.hints --release
+# Download the latest mainnet hintsfile and run a fresh sync to its stop height
+mainnet:
+  curl -fsSL -o bitcoin.hints https://utxohints.store/hints/bitcoin
+  cargo run --release --bin ibd -- --hintsfile bitcoin.hints --network bitcoin
+
+# Download the latest signet hintsfile and run a fresh sync to its stop height
+signet:
+  curl -fsSL -o signet.hints https://utxohints.store/hints/signet
+  cargo run --release --bin ibd -- --hintsfile signet.hints --network signet
 
 delete:
   rm -rf blocks chainstate blockfiles

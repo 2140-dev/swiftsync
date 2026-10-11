@@ -55,8 +55,17 @@ Arguments:
                                 stream until the connection is killed.
 ```
 
+Or use the [`just`](https://github.com/casey/just) shortcuts from this directory:
+
+```bash
+just mainnet  # download the latest bitcoin.hints and sync mainnet
+just signet   # download the latest signet.hints and sync signet
+```
+
 If IBD completes, or you experience a bug, you will need to remove the kernel directories from this repository to run the binary again: 
 
 ```
 rm -rf blocks chainstate
 ```
+
+Or equivalently, `just delete`.
