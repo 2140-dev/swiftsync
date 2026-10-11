@@ -20,7 +20,8 @@ use bitcoin::{
     BlockChecked, BlockHash, Network, OutPoint,
 };
 use hintsfile::Hintsfile;
-use kernel::{ChainType, ChainstateManager};
+use kernel::prelude::*;
+use kernel::{ChainType, ChainstateManager, ProcessBlockHeaderResult};
 use p2p::{
     dns::DnsQueryExt,
     handshake::ConnectionConfig,
@@ -120,8 +121,8 @@ pub fn sync_block_headers(
             Err(_) => continue,
         };
         tracing::info!("Connection established");
-        let curr = chainman.best_header();
-        let locator = BlockHash::from_byte_array(curr.block_hash().hash);
+        let curr = chainman.best_entry().expect("best entry must exist");
+        let locator = BlockHash::from_byte_array(curr.block_hash().to_bytes());
         let curr_height = curr.height() as u32;
         if curr_height.eq(&stop_height) {
             tracing::info!("Using existing header state");
@@ -143,10 +144,22 @@ pub fn sync_block_headers(
             match message {
                 NetworkMessage::Headers(message) => {
                     for header in message.0 {
-                        chainman
-                            .process_new_block_headers(&consensus::serialize(&header), true)
-                            .expect("process headers failed");
-                        let curr_height = chainman.best_header().height() as u32;
+                        let kernel_header =
+                            kernel::BlockHeader::new(&consensus::serialize(&header))
+                                .expect("valid header serialization");
+                        match chainman
+                            .process_block_header(&kernel_header)
+                            .expect("process headers failed")
+                        {
+                            ProcessBlockHeaderResult::Valid => (),
+                            ProcessBlockHeaderResult::Invalid(state) => {
+                                panic!("invalid block header: {state:?}")
+                            }
+                        }
+                        let curr_height = chainman
+                            .best_entry()
+                            .expect("best entry must exist")
+                            .height() as u32;
                         if curr_height.eq(&stop_height) {
                             tracing::info!("Done syncing block headers");
                             if let Some(message_rate) =
@@ -160,8 +173,18 @@ pub fn sync_block_headers(
                             return;
                         }
                     }
-                    tracing::info!("Update chain tip: {}", chainman.best_header().height());
-                    let curr = chainman.best_header().block_hash().hash;
+                    tracing::info!(
+                        "Update chain tip: {}",
+                        chainman
+                            .best_entry()
+                            .expect("best entry must exist")
+                            .height()
+                    );
+                    let curr = chainman
+                        .best_entry()
+                        .expect("best entry must exist")
+                        .block_hash()
+                        .to_bytes();
                     let locator = BlockHash::from_byte_array(curr);
                     let getheaders = GetHeadersMessage {
                         version: PROTOCOL_VERSION,
@@ -248,11 +271,9 @@ pub fn get_blocks_for_range(
                     let hash = block.block_hash();
                     // tracing::info!("[thread {task_id:2}]: {hash}");
                     batch.retain(|b| hash.ne(b));
-                    let kernal_hash: kernel::BlockHash = kernel::BlockHash {
-                        hash: hash.to_byte_array(),
-                    };
+                    let kernel_hash = kernel::BlockHash::from(hash.to_byte_array());
                     let block_index = chain
-                        .block_index_by_hash(kernal_hash)
+                        .get_block_tree_entry(&kernel_hash)
                         .expect("header is in best chain.");
                     let block_height = block_index.height().unsigned_abs();
                     let unspent_indexes: HashSet<u32> = {
@@ -378,16 +399,16 @@ pub fn get_blocks_for_range(
 }
 
 pub fn hashes_from_chain(chain: Arc<ChainstateManager>) -> Vec<Vec<BlockHash>> {
-    let height = chain.best_header().height();
+    let height = chain.best_entry().expect("best entry must exist").height();
     let mut hashes = Vec::with_capacity(height as usize);
-    let mut curr = chain.best_header();
-    let tip_hash = BlockHash::from_byte_array(curr.block_hash().hash);
+    let mut curr = chain.best_entry().expect("best entry must exist");
+    let tip_hash = BlockHash::from_byte_array(curr.block_hash().to_bytes());
     hashes.push(tip_hash);
-    while let Ok(next) = curr.prev() {
+    while let Some(next) = curr.prev() {
         if next.height() == 0 {
             break;
         }
-        let hash = BlockHash::from_byte_array(next.block_hash().hash);
+        let hash = BlockHash::from_byte_array(next.block_hash().to_bytes());
         hashes.push(hash);
         curr = next;
     }
@@ -405,8 +426,8 @@ pub trait ChainExt {
 impl ChainExt for Network {
     fn chain_type(&self) -> ChainType {
         match self {
-            Network::Bitcoin => ChainType::MAINNET,
-            Network::Signet => ChainType::SIGNET,
+            Network::Bitcoin => ChainType::Mainnet,
+            Network::Signet => ChainType::Signet,
             _ => unimplemented!("choose bitcoin or signet"),
         }
     }
