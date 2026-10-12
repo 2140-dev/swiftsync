@@ -24,7 +24,7 @@ impl Rng {
 
     fn next_32_bytes(&mut self) -> [u8; 32] {
         let mut out = [0u8; 32];
-        for chunk in out.chunks_exact_mut(8) {
+        for chunk in out.as_chunks_mut::<8>().0 {
             chunk.copy_from_slice(&self.next_u64().to_le_bytes());
         }
         out
